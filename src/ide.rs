@@ -35,12 +35,16 @@ pub struct Popup {
     pub incomplete: bool,
 }
 
+#[derive(Clone)]
 pub enum MenuAction {
     Code(&'static str, Value),
     Jump(PathBuf, usize, usize, Enc),
     Cmd(&'static str),
     Dir(PathBuf),
     OpenDir(PathBuf),
+    Model(String),
+    Chat(String),
+    AiProvider(crate::ai::Provider),
 }
 
 pub struct Menu {
@@ -50,6 +54,32 @@ pub struct Menu {
     pub scroll: usize,
     pub anchor: Option<(u16, u16)>,
     pub dir: Option<PathBuf>,
+    pub filter: Option<String>,
+    pub base: Vec<(String, MenuAction)>,
+    pub custom_model: bool,
+}
+
+impl Menu {
+    pub fn filterable(title: String, items: Vec<(String, MenuAction)>, sel: usize, custom_model: bool) -> Self {
+        Menu {
+            title,
+            base: items.clone(),
+            items,
+            sel,
+            scroll: 0,
+            anchor: None,
+            dir: None,
+            filter: Some(String::new()),
+            custom_model,
+        }
+    }
+
+    fn apply_filter(&mut self) {
+        let f = self.filter.clone().unwrap_or_default().to_lowercase();
+        self.items = self.base.iter().filter(|(t, _)| f.is_empty() || t.to_lowercase().contains(&f)).cloned().collect();
+        self.sel = 0;
+        self.scroll = 0;
+    }
 }
 
 fn fuzzy(pat: &str, s: &str) -> Option<u8> {
@@ -372,6 +402,9 @@ impl Editor {
             scroll: 0,
             anchor: None,
             dir: None,
+            filter: None,
+            base: Vec::new(),
+            custom_model: false,
         });
     }
 
@@ -564,7 +597,7 @@ impl Editor {
             return;
         }
         let n = items.len();
-        self.menu = Some(Menu { title: tf!("Referanslar ({})", "References ({})", n), items, sel: 0, scroll: 0, anchor: None, dir: None });
+        self.menu = Some(Menu { title: tf!("Referanslar ({})", "References ({})", n), items, sel: 0, scroll: 0, anchor: None, dir: None, filter: None, base: Vec::new(), custom_model: false });
     }
 
     fn on_code_actions(&mut self, lang: &'static str, r: Value) {
@@ -588,7 +621,7 @@ impl Editor {
             })
             .collect();
         let anchor = self.menu_anchor.take();
-        self.menu = Some(Menu { title: t!("Kod eylemleri", "Code actions").into(), items, sel: 0, scroll: 0, anchor, dir: None });
+        self.menu = Some(Menu { title: t!("Kod eylemleri", "Code actions").into(), items, sel: 0, scroll: 0, anchor, dir: None, filter: None, base: Vec::new(), custom_model: false });
     }
 
     pub(crate) fn run_action(&mut self, lang: &'static str, a: Value, allow_resolve: bool) {
@@ -1057,6 +1090,31 @@ impl Editor {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let Some(m) = self.menu.as_mut() else { return };
         let n = m.items.len();
+        if m.filter.is_some() {
+            match k.code {
+                KeyCode::Char(c) if !ctrl => {
+                    m.filter.as_mut().unwrap().push(c);
+                    m.apply_filter();
+                    return;
+                }
+                KeyCode::Backspace => {
+                    m.filter.as_mut().unwrap().pop();
+                    m.apply_filter();
+                    return;
+                }
+                KeyCode::Enter if n == 0 && m.custom_model => {
+                    let f = m.filter.clone().unwrap_or_default();
+                    self.menu = None;
+                    if !f.trim().is_empty() {
+                        self.ai.set_model(f.trim());
+                        self.info(tf!("Model: {}", "Model: {}", f.trim()));
+                    }
+                    return;
+                }
+                KeyCode::Up | KeyCode::Down | KeyCode::Enter | KeyCode::Esc | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Tab | KeyCode::BackTab => {}
+                _ => return,
+            }
+        }
         if let Some(d) = m.dir.clone() {
             match k.code {
                 KeyCode::Backspace | KeyCode::Left => {
@@ -1124,6 +1182,20 @@ impl Editor {
             MenuAction::Jump(p, l, c, e) => self.jump_to(&p, l, c, e),
             MenuAction::Cmd(c) => self.context_cmd(c),
             MenuAction::Dir(p) => self.folder_picker(p, None),
+            MenuAction::Model(name) => {
+                self.ai.set_model(&name);
+                self.info(tf!("Model: {}", "Model: {}", name));
+            }
+            MenuAction::Chat(id) => {
+                if self.ai.load_chat(&id) {
+                    self.ai.visible = true;
+                    self.focus = Focus::Ai;
+                }
+            }
+            MenuAction::AiProvider(p) => {
+                self.ai.set_provider(p);
+                self.info(tf!("Sağlayıcı: {}", "Provider: {}", p.id()));
+            }
             MenuAction::OpenDir(p) => {
                 self.open_path(&p);
                 let name = self.tree.root_name();
@@ -1167,7 +1239,7 @@ impl Editor {
         let full = dir.display().to_string();
         let chars: Vec<char> = full.chars().collect();
         let title = if chars.len() > 50 { format!("…{}", chars[chars.len() - 49..].iter().collect::<String>()) } else { full };
-        self.menu = Some(Menu { title, items, sel, scroll: 0, anchor: None, dir: Some(dir) });
+        self.menu = Some(Menu { title, items, sel, scroll: 0, anchor: None, dir: Some(dir), filter: None, base: Vec::new(), custom_model: false });
         self.menu_follow();
     }
 
@@ -1191,7 +1263,7 @@ impl Editor {
         items.push((t!("Yapıştır            p", "Paste               p").into(), MenuAction::Cmd("paste")));
         items.push((t!("Tümünü seç", "Select all").into(), MenuAction::Cmd("selectall")));
         self.ctx_pos = Some((x, y));
-        self.menu = Some(Menu { title: String::new(), items, sel: 0, scroll: 0, anchor: Some((x, y)), dir: None });
+        self.menu = Some(Menu { title: String::new(), items, sel: 0, scroll: 0, anchor: Some((x, y)), dir: None, filter: None, base: Vec::new(), custom_model: false });
     }
 
     fn context_cmd(&mut self, c: &str) {
@@ -1221,6 +1293,12 @@ impl Editor {
                 } else {
                     self.paste(true);
                 }
+            }
+            "ai_provider" => self.ai_provider_menu(),
+            "ai_new" => {
+                self.ai.new_chat();
+                self.ai.visible = true;
+                self.focus = Focus::Ai;
             }
             "selectall" => {
                 self.anchor = (0, 0);

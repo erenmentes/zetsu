@@ -59,6 +59,21 @@ LANGUAGE SERVER (LSP) — starts automatically (rust-analyzer, pyright, clangd, 
   :format         format file            :diag  list all diagnostics
   :lsp            server status          :lsp restart | stop
 
+AI ASSISTANT
+  Ctrl+L          toggle the AI panel (in visual mode the selection is attached)
+  Enter           send                    Ctrl+J / Alt+Enter  newline
+  Ctrl+T          toggle file context
+  Ctrl+N  Ctrl+H  new chat / chat history
+  Ctrl+C          stop the response       Esc  back to editor
+  ↑ ↓ PgUp PgDn   scroll messages
+  ⏎ apply         put the code block over the selection or at the cursor
+  ⧉ copy          copy the code block to the clipboard
+  :ai key <key>                           save API key
+  :ai provider openai|anthropic|gemini    provider
+  :ai model [name]                        pick a model (type to filter)
+  :ai url <url>                           OpenAI-compatible endpoint (OpenRouter, Groq, Ollama…)
+  :ai new | history | delete | apply N | copy N | close
+
 CLIPBOARD
   y d c x p       synced with the system clipboard (copy elsewhere → p)
   Ctrl+c Ctrl+x   copy / cut in visual mode

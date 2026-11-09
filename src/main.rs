@@ -1,5 +1,6 @@
 #[macro_use]
 mod i18n;
+mod ai;
 mod buffer;
 mod config;
 mod discord;
@@ -64,6 +65,9 @@ fn run(ed: &mut Editor) -> io::Result<()> {
             redraw = true;
         }
         if ed.lsp_tick() {
+            redraw = true;
+        }
+        if ed.ai_tick() {
             redraw = true;
         }
         ed.presence_tick();

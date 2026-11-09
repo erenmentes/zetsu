@@ -15,6 +15,8 @@ use std::time::Instant;
 
 #[path = "ide.rs"]
 mod ide;
+#[path = "ai_ui.rs"]
+mod ai_ui;
 pub use ide::{Menu, Popup, MENU_ROWS, POPUP_ROWS};
 
 pub const NONAME: &str = "[isimsiz]";
@@ -38,6 +40,7 @@ pub enum Mode {
 pub enum Focus {
     Editor,
     Tree,
+    Ai,
 }
 
 #[derive(Clone)]
@@ -58,6 +61,7 @@ enum Drag {
     None,
     Text,
     Sep,
+    AiSep,
 }
 
 pub struct Layout {
@@ -68,6 +72,9 @@ pub struct Layout {
     pub text_w: u16,
     pub top: u16,
     pub text_h: u16,
+    pub ed_w: u16,
+    pub ai_x: u16,
+    pub ai_w: u16,
 }
 
 pub struct Editor {
@@ -116,6 +123,10 @@ pub struct Editor {
     pub clip_on: bool,
     pub presence: Presence,
     pub recent: Vec<PathBuf>,
+    pub ai: crate::ai::Ai,
+    ai_pick_pending: bool,
+    pub ai_hits: RefCell<Vec<(u16, u16, u16, ai_ui::AiHit)>>,
+    pub ai_cursor: Cell<Option<(u16, u16)>>,
     pub splash_hits: RefCell<Vec<(u16, usize)>>,
 }
 
@@ -259,6 +270,10 @@ impl Editor {
             },
             recent,
             splash_hits: RefCell::new(Vec::new()),
+            ai: crate::ai::Ai::new(),
+            ai_pick_pending: false,
+            ai_hits: RefCell::new(Vec::new()),
+            ai_cursor: Cell::new(None),
         };
         if opened_dir {
             ed.push_recent(&root);
@@ -301,9 +316,17 @@ impl Editor {
             2
         };
         let text_x = ed_x + gutter;
-        let text_w = self.w.saturating_sub(text_x).max(1);
+        let ai_w = if self.ai.visible {
+            let max = self.w.saturating_sub(ed_x + 31).max(24);
+            self.ai.width.clamp(24.min(max), max)
+        } else {
+            0
+        };
+        let ai_x = if ai_w > 0 { self.w.saturating_sub(ai_w + 1) } else { self.w };
+        let text_w = ai_x.saturating_sub(text_x).max(1);
         let text_h = self.h.saturating_sub(3).max(1);
-        Layout { tree_w, ed_x, gutter, text_x, text_w, top: 1, text_h }
+        let ed_w = ai_x.saturating_sub(ed_x);
+        Layout { tree_w, ed_x, gutter, text_x, text_w, top: 1, text_h, ed_w, ai_x, ai_w }
     }
 
     pub fn is_splash(&self) -> bool {
@@ -494,6 +517,15 @@ impl Editor {
         if self.menu.is_some() {
             return self.menu_key(k);
         }
+        if is_ctrl(&k) && k.code == KeyCode::Char('l') {
+            return self.ai_toggle();
+        }
+        if self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search) {
+            let global = is_ctrl(&k) && matches!(k.code, KeyCode::Char('w') | KeyCode::Char('b') | KeyCode::Char('k') | KeyCode::Char('s'));
+            if !global {
+                return self.ai_key(k);
+            }
+        }
         if is_ctrl(&k) {
             match k.code {
                 KeyCode::Char('s') => {
@@ -510,10 +542,12 @@ impl Editor {
                     return;
                 }
                 KeyCode::Char('w') => {
-                    if self.tree.visible {
-                        self.to_normal();
-                        self.focus = if self.focus == Focus::Tree { Focus::Editor } else { Focus::Tree };
-                    }
+                    self.to_normal();
+                    self.focus = match self.focus {
+                        Focus::Editor if self.tree.visible => Focus::Tree,
+                        Focus::Editor | Focus::Tree if self.ai.visible => Focus::Ai,
+                        _ => Focus::Editor,
+                    };
                     return;
                 }
                 KeyCode::Char('c') | KeyCode::Char('x')
@@ -1513,6 +1547,9 @@ impl Editor {
     }
 
     fn on_paste(&mut self, s: &str) {
+        if self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search) {
+            return self.ai_paste(s);
+        }
         let text: Vec<char> = s.replace("\r\n", "\n").replace('\r', "\n").chars().collect();
         match self.mode {
             Mode::Command | Mode::Search => {
@@ -1845,6 +1882,7 @@ impl Editor {
             "hover" => self.lsp_hover(),
             "lsp" | "LspInfo" => self.lsp_command(arg),
             "discord" => self.discord_command(arg),
+            "ai" => self.ai_command(arg),
             "lang" | "language" | "dil" => self.set_lang(arg),
             "open" | "o" | "folder" => match arg_opt {
                 Some(p) => self.open_path(Path::new(p)),
@@ -2314,6 +2352,41 @@ impl Editor {
         let (x, y) = (m.column, m.row);
         let in_text_rows = y >= l.top && y < l.top + l.text_h;
         let over_tree = self.tree.visible && x < l.tree_w && in_text_rows;
+        let over_ai = self.ai.visible && x >= l.ai_x && in_text_rows;
+        match m.kind {
+            MouseEventKind::Down(MouseButton::Left) if over_ai => {
+                if matches!(self.mode, Mode::Command | Mode::Search) {
+                    self.mode = Mode::Normal;
+                }
+                if x == l.ai_x {
+                    self.drag = Drag::AiSep;
+                } else {
+                    self.to_normal();
+                    self.ai_click(x, y);
+                }
+                return;
+            }
+            MouseEventKind::ScrollUp if over_ai => {
+                self.ai.scroll += 3;
+                return;
+            }
+            MouseEventKind::ScrollDown if over_ai => {
+                self.ai.scroll = self.ai.scroll.saturating_sub(3);
+                return;
+            }
+            MouseEventKind::Down(_) if over_ai => return,
+            MouseEventKind::Drag(MouseButton::Left) if self.drag == Drag::AiSep => {
+                let max = self.w.saturating_sub(l.ed_x + 31).max(24);
+                self.ai.width = self.w.saturating_sub(x + 1).clamp(24.min(max), max);
+                return;
+            }
+            MouseEventKind::Up(_) if self.drag == Drag::AiSep => {
+                self.drag = Drag::None;
+                self.ai.save_width();
+                return;
+            }
+            _ => {}
+        }
         match m.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let now = Instant::now();
@@ -2353,7 +2426,7 @@ impl Editor {
                     }
                     return;
                 }
-                if x >= l.ed_x && self.is_splash() {
+                if x >= l.ed_x && x < l.ai_x && self.is_splash() {
                     let hit = self.splash_hits.borrow().iter().find(|(hy, _)| *hy == y).map(|h| h.1);
                     match hit {
                         Some(SPLASH_OPEN) => {
@@ -2370,7 +2443,7 @@ impl Editor {
                     }
                     return;
                 }
-                if x >= l.ed_x {
+                if x >= l.ed_x && x < l.ai_x {
                     self.focus = Focus::Editor;
                     if matches!(self.mode, Mode::Visual | Mode::VisualLine) {
                         self.mode = Mode::Normal;
@@ -2465,7 +2538,7 @@ impl Editor {
                     b.cy = p.1;
                     b.sync_want();
                 }
-                Drag::None => {}
+                Drag::None | Drag::AiSep => {}
             },
             MouseEventKind::Up(_) => self.drag = Drag::None,
             MouseEventKind::Down(MouseButton::Middle) => {

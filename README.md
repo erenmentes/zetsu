@@ -16,6 +16,7 @@
 - **Workspace** — file tree, tabs, folder picker, recent workspaces, shell command integration (`:!cargo build`).
 - **System clipboard** — yank, delete and paste are synced with the OS clipboard on Windows, macOS, X11 and Wayland.
 - **Syntax highlighting** for Rust, C/C++, Python, JavaScript/TypeScript, Go, Shell, Lua, TOML/YAML and JSON.
+- **AI assistant** — side panel with streaming chat for OpenAI-compatible APIs (OpenAI, OpenRouter, Groq, DeepSeek, Mistral, Ollama, LM Studio), Anthropic and Google Gemini. File or selection context, one-key code application, persistent chat history.
 - **Discord Rich Presence** over local IPC.
 - **Localization** — English and Turkish UI, switchable at runtime (`:lang en`, `:lang tr`).
 - **Rendering** — double-buffered, diff-based redraw; only changed rows are written to the terminal. Truecolor with automatic 256-color fallback.
@@ -102,6 +103,40 @@ Press `:help` inside the editor for the full keymap.
 | `:diag` | list diagnostics |
 | `:lsp`, `:lsp restart` | server status / restart |
 
+### AI panel
+
+| Key | Action |
+|---|---|
+| `Ctrl+L` | toggle the panel (attaches the visual selection, if any) |
+| `Enter` / `Ctrl+J` | send / newline |
+| `Ctrl+T` | toggle file context |
+| `Ctrl+N` / `Ctrl+H` | new chat / chat history |
+| `Ctrl+C` | stop streaming |
+
+## AI assistant
+
+The panel talks to the provider directly from your machine using your own API key. Nothing is proxied.
+
+```
+:ai provider openai|anthropic|gemini
+:ai key <API_KEY>
+:ai model                 # fetches the model list from the provider; type to filter
+```
+
+Any OpenAI-compatible endpoint can be used by changing the base URL:
+
+```
+:ai url https://openrouter.ai/api/v1
+:ai url https://api.groq.com/openai/v1
+:ai url http://localhost:11434/v1        # Ollama, no key required
+```
+
+Keys can also be supplied through `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. Keys set with `:ai key` are stored in plain text in the config file.
+
+When file context is enabled the active buffer is sent with the first message and again only after it changes. A visual selection captured with `Ctrl+L` is sent instead of the whole file, and **apply** on a reply replaces exactly those lines; otherwise the code block is inserted at the cursor. Every apply is a single undo step.
+
+Chats are saved as JSON under `<config dir>/chats/` and the most recent one is restored on startup.
+
 ## Language servers
 
 zetsu looks up the following executables on `PATH`:
@@ -135,6 +170,10 @@ Settings are persisted by the editor itself:
 | `recent` | — | recent workspaces |
 | `discord` | `:discord on\|off` | Rich Presence toggle |
 | `discord_client_id` | `:discord id <id>` | Discord application ID |
+| `ai_provider` | `:ai provider` | active AI provider |
+| `ai_key_<provider>` | `:ai key` | API key per provider |
+| `ai_model_<provider>` | `:ai model` | model per provider |
+| `ai_url_<provider>` | `:ai url` | base URL per provider |
 
 ## Discord Rich Presence
 
@@ -166,6 +205,8 @@ src/
   screen.rs      diff-based screen buffer
   highlight.rs   syntax highlighting
   tree.rs        file tree
+  ai.rs          AI providers, SSE streaming, chat storage
+  ai_ui.rs       AI panel
   discord.rs     Discord IPC client
   i18n.rs        localization
   config.rs      settings file

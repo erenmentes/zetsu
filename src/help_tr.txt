@@ -59,6 +59,21 @@ DİL SUNUCUSU (LSP) — otomatik başlar (rust-analyzer, pyright, clangd, gopls 
   :format         dosyayı biçimlendir     :diag  tüm tanıları listele
   :lsp            sunucu durumu            :lsp restart | stop
 
+AI ASİSTANI
+  Ctrl+L          AI panelini aç / kapat (görsel seçimdeyken seçimi bağlam olarak ekler)
+  Enter           gönder                  Ctrl+J / Alt+Enter  yeni satır
+  Ctrl+T          dosya bağlamını aç / kapat
+  Ctrl+N  Ctrl+H  yeni sohbet / sohbet geçmişi
+  Ctrl+C          yanıtı durdur           Esc  editöre dön
+  ↑ ↓ PgUp PgDn   mesajları kaydır
+  ⏎ uygula        kod bloğunu seçimin yerine ya da imleç konumuna koyar
+  ⧉ kopyala       kod bloğunu panoya kopyalar
+  :ai key <anahtar>                       API anahtarını kaydet
+  :ai provider openai|anthropic|gemini    sağlayıcı
+  :ai model [ad]                          model seç (liste yazarak filtrelenir)
+  :ai url <adres>                         OpenAI uyumlu adres (OpenRouter, Groq, Ollama…)
+  :ai new | history | delete | apply N | copy N | close
+
 SİSTEM PANOSU
   y d c x p       hepsi sistem panosuyla senkron (başka programdan kopyala → p)
   Ctrl+c Ctrl+x   görsel modda kopyala / kes

@@ -1,6 +1,6 @@
 [package]
 name = "zetsu"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A minimal, vim-like terminal IDE with mouse support"
 repository = "https://github.com/erenmentes/zetsu"
@@ -10,6 +10,7 @@ build = "build.rs"
 crossterm = "0.28"
 unicode-width = "0.2"
 serde_json = "1"
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }

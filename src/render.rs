@@ -10,21 +10,21 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::Rgb { r, g, b }
 }
 
-const DIM: Color = rgb(0x5c, 0x63, 0x70);
-const BRIGHT: Color = rgb(0xe6, 0xe6, 0xe6);
+pub(crate) const DIM: Color = rgb(0x5c, 0x63, 0x70);
+pub(crate) const BRIGHT: Color = rgb(0xe6, 0xe6, 0xe6);
 const KW: Color = rgb(0xc6, 0x78, 0xdd);
-const STR: Color = rgb(0x98, 0xc3, 0x79);
+pub(crate) const STR: Color = rgb(0x98, 0xc3, 0x79);
 const NUM: Color = rgb(0xd1, 0x9a, 0x66);
 const FUNC: Color = rgb(0x61, 0xaf, 0xef);
-const TYPE: Color = rgb(0xe5, 0xc0, 0x7b);
-const MACRO: Color = rgb(0x56, 0xb6, 0xc2);
-const ERR: Color = rgb(0xe0, 0x6c, 0x75);
-const BAR: Color = rgb(0x21, 0x25, 0x2b);
-const SEL: Color = rgb(0x3e, 0x44, 0x51);
+pub(crate) const TYPE: Color = rgb(0xe5, 0xc0, 0x7b);
+pub(crate) const MACRO: Color = rgb(0x56, 0xb6, 0xc2);
+pub(crate) const ERR: Color = rgb(0xe0, 0x6c, 0x75);
+pub(crate) const BAR: Color = rgb(0x21, 0x25, 0x2b);
+pub(crate) const SEL: Color = rgb(0x3e, 0x44, 0x51);
 const FIND: Color = rgb(0x5a, 0x4a, 0x1e);
 const INK: Color = rgb(0x1b, 0x1e, 0x23);
-const LOGO_GREEN: Color = rgb(0x3d, 0xd6, 0x8c);
-const POP: Color = rgb(0x28, 0x2c, 0x34);
+pub(crate) const LOGO_GREEN: Color = rgb(0x3d, 0xd6, 0x8c);
+pub(crate) const POP: Color = rgb(0x28, 0x2c, 0x34);
 const BORDER: Color = rgb(0x4b, 0x52, 0x63);
 
 fn sev_color(sev: u8) -> Color {
@@ -66,11 +66,11 @@ fn kind_info(k: u64) -> (&'static str, Color) {
     }
 }
 
-fn text_w(t: &str) -> usize {
+pub(crate) fn text_w(t: &str) -> usize {
     t.chars().map(|c| char_width(c, 0)).sum()
 }
 
-fn put_clip(s: &mut Screen, x: u16, y: u16, t: &str, st: Style, max: usize) -> u16 {
+pub(crate) fn put_clip(s: &mut Screen, x: u16, y: u16, t: &str, st: Style, max: usize) -> u16 {
     let mut cx = x;
     let end = x as usize + max;
     for c in t.chars() {
@@ -132,6 +132,7 @@ impl Editor {
         } else {
             self.draw_text(s, &l);
         }
+        self.draw_ai(s, &l);
         self.draw_status(s);
         self.draw_cmdline(s);
         self.draw_sig(s, &l);
@@ -146,7 +147,9 @@ impl Editor {
                 let w: usize = self.cmd[..self.cmd_x].iter().map(|c| char_width(*c, 0)).sum();
                 Some(((1 + w).min(self.w as usize - 1) as u16, self.h.saturating_sub(1)))
             }
-            _ if self.focus == Focus::Tree || self.menu.is_some() => None,
+            _ if self.menu.is_some() => None,
+            _ if self.focus == Focus::Ai => self.ai_cursor.get(),
+            _ if self.focus == Focus::Tree => None,
             _ if self.is_splash() => None,
             _ => {
                 let l = self.layout();
@@ -252,7 +255,7 @@ impl Editor {
         let mut hits = self.splash_hits.borrow_mut();
         hits.clear();
         let area_x = l.ed_x;
-        let area_w = s.w.saturating_sub(l.ed_x);
+        let area_w = l.ed_w;
         let recent_n = self.recent.len().min(5);
         let mut need = 3 + 2 + 2 + keys.len();
         let show_recent = recent_n > 0 && (l.text_h as usize) >= need + 3 + recent_n;
@@ -435,7 +438,10 @@ impl Editor {
         let bar = Style::fg(DIM).on(BAR);
         s.fill_row(y, bar);
         let tree_mode = self.focus == Focus::Tree && !matches!(self.mode, Mode::Command | Mode::Search);
-        let (label, color) = if tree_mode {
+        let ai_mode = self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search);
+        let (label, color) = if ai_mode {
+            ("AI", LOGO_GREEN)
+        } else if tree_mode {
             (t!("AĞAÇ", "TREE"), MACRO)
         } else {
             match self.mode {
@@ -605,7 +611,8 @@ impl Editor {
         let Some(m) = &self.menu else { return };
         let rows = m.items.len().min(MENU_ROWS).max(1);
         let itemw = m.items.iter().map(|i| text_w(&i.0)).max().unwrap_or(0);
-        let w = (itemw + 4).max(text_w(&m.title) + 8).max(20).min(s.w as usize - 2) as u16;
+        let min_w = if m.filter.is_some() { 44 } else { 20 };
+        let w = (itemw + 4).max(text_w(&m.title) + 8).max(min_w).min(s.w as usize - 2) as u16;
         let h = rows as u16 + 2;
         let (x0, y0) = match m.anchor {
             Some((ax, ay)) => {
@@ -613,11 +620,15 @@ impl Editor {
                 (ax.min(s.w.saturating_sub(w)), y)
             }
             None => {
-                let area = s.w.saturating_sub(l.ed_x);
+                let area = l.ed_w;
                 (l.ed_x + area.saturating_sub(w) / 2, l.top + 1)
             }
         };
-        draw_box(s, x0, y0, w, h, &m.title);
+        let title = match &m.filter {
+            Some(f) => format!("{}: {}▏", m.title, f),
+            None => m.title.clone(),
+        };
+        draw_box(s, x0, y0, w, h, &title);
         for r in 0..rows {
             let i = m.scroll + r;
             let Some((t, _)) = m.items.get(i) else { break };
