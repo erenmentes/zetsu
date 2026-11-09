@@ -1,0 +1,122 @@
+zetsu — help
+============
+
+  Close this tab with  :q   (or middle-click the tab)
+
+MODES
+  i a I A o O     enter insert mode
+  v  V            visual selection (char / line)
+  :               command line
+  /               search
+  Esc             back to normal mode (Ctrl+c works too)
+
+MOTION  (prefix with a count: 5j, 3w ...)
+  h j k l         left / down / up / right  (arrow keys work too)
+  w b e           next word / previous word / end of word
+  0 ^ $           line start / first char / line end
+  gg G 42G        top of file / end of file / line 42
+  { }             previous / next paragraph
+  %               matching bracket
+  f t F T <c>     jump to char in line
+  Ctrl+d Ctrl+u   half page down / up
+  PgDn PgUp       page down / up
+
+EDITING
+  x X             delete char
+  dd yy cc        delete / yank / change line
+  d y c + motion  dw  d$  y3j  cw  dG  dt) ...
+  D C Y S         delete / change to end of line, yank / change line
+  p P             paste (after / before)
+  r<c>            replace char
+  ~               toggle case
+  J               join lines
+  >> <<           indent / dedent
+  u  Ctrl+r       undo / redo
+
+VISUAL MODE
+  d x y c         delete / delete / yank / change
+  > < ~ J p       indent / case / join / paste over
+  o               jump to other end of selection
+
+SEARCH
+  /text           search (all lowercase = case-insensitive)
+  n N             next / previous match
+  *               search word under cursor
+  :noh            clear highlight
+
+LANGUAGE SERVER (LSP) — starts automatically (rust-analyzer, pyright, clangd, gopls ...)
+  (insert)        suggestions pop up while typing
+  Tab Enter       accept suggestion      ↑ ↓ Ctrl+n Ctrl+p  move in list
+  Ctrl+Space      open suggestions manually (words from open files if no LSP)
+  K               docs / info for symbol under cursor
+  gd  F12         go to definition       Ctrl+o  jump back
+  Ctrl+click      go to definition
+  gr              list references
+  ga              code actions / quick fixes (e.g. missing import)
+  ]d  [d          next / previous error or warning
+  F2              rename (:rename newname)
+  Right click     context menu
+  :format         format file            :diag  list all diagnostics
+  :lsp            server status          :lsp restart | stop
+
+CLIPBOARD
+  y d c x p       synced with the system clipboard (copy elsewhere → p)
+  Ctrl+c Ctrl+x   copy / cut in visual mode
+  Ctrl+v          paste from clipboard in insert mode
+  :set noclip     disable clipboard sync      :set clip  enable
+
+DISCORD
+  :discord              status
+  :discord id <ID>      save your Discord application ID (once)
+  :discord on | off     enable / disable Rich Presence
+
+MOUSE
+  Click           move cursor / open file in tree / switch tab
+  Double click    select word
+  Triple click    select line
+  Drag            select
+  Wheel           scroll
+  Middle click    close tab (on the tab bar)
+  Divider │       drag to resize the file tree
+
+FOLDERS
+  Ctrl+k          folder picker: arrows to move, Enter to go in / open,
+                  Backspace to go up, a letter jumps to folders starting with it
+  :open [path]    folder picker        :cd <path>  switch folder directly
+  1-9             (on the start screen) open a recent folder
+
+WINDOW
+  Ctrl+b          toggle file tree
+  Ctrl+w  Tab     switch focus tree <-> editor
+  Ctrl+s          save
+  gt gT           next / previous tab
+
+FILE TREE (when focused)
+  j k             move
+  Enter l o       open / expand folder
+  h               collapse / go to parent
+  r               refresh
+  Esc q           back to editor
+
+LANGUAGE
+  :lang en | tr   switch UI language (applies instantly, saved)
+
+COMMANDS
+  :w [file]       save              :wa   save all
+  :q   :q!        close tab (quits if it is the last one)
+  :wq  :x         save and close
+  :qa  :qa!       quit all
+  :e <file>       open  (Tab completes)   :e!  reload from disk
+  :enew           new empty tab
+  :bn :bp :bd     next / previous tab, close tab
+  :b N   :ls      go to tab N / list tabs
+  :42             go to line 42
+  :s/a/b/g        replace in line      :%s/a/b/g  in whole file
+  :!cmd           run a shell command, output opens in a new tab
+                  (% = current file;  e.g.  :!cargo build   :!python %)
+  :cd <dir>       change working directory   :pwd
+  :set nu|nonu|rnu|nornu    line numbers
+  :set et|noet              indent with spaces / tabs
+  :set lf|crlf              line ending
+  :tree           file tree
+  :help           this screen

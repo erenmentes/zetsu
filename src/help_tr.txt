@@ -1,0 +1,122 @@
+zetsu — yardım
+==============
+
+  Bu sekmeyi kapatmak için  :q   (ya da sekmeye orta tıkla)
+
+MODLAR
+  i a I A o O     insert moduna geç
+  v  V            görsel seçim (karakter / satır)
+  :               komut satırı
+  /               arama
+  Esc             normal moda dön (Ctrl+c de olur)
+
+HAREKET  (başına sayı eklenebilir: 5j, 3w ...)
+  h j k l         sol / aşağı / yukarı / sağ  (ok tuşları da çalışır)
+  w b e           sonraki kelime / önceki kelime / kelime sonu
+  0 ^ $           satır başı / ilk karakter / satır sonu
+  gg G 42G        dosya başı / dosya sonu / 42. satır
+  { }             önceki / sonraki paragraf
+  %               eşleşen parantez
+  f t F T <c>     satırda karaktere git
+  Ctrl+d Ctrl+u   yarım sayfa aşağı / yukarı
+  PgDn PgUp       sayfa aşağı / yukarı
+
+DÜZENLEME
+  x X             karakter sil
+  dd yy cc        satırı sil / kopyala / değiştir
+  d y c + hareket dw  d$  y3j  cw  dG  dt) ...
+  D C Y S         satır sonuna kadar sil / değiştir, satırı kopyala / değiştir
+  p P             yapıştır (sonra / önce)
+  r<c>            karakteri değiştir
+  ~               büyük/küçük harf
+  J               satırları birleştir
+  >> <<           girintiyi artır / azalt
+  u  Ctrl+r       geri al / yinele
+
+GÖRSEL MOD
+  d x y c         sil / sil / kopyala / değiştir
+  > < ~ J p       girinti / harf / birleştir / üzerine yapıştır
+  o               seçimin diğer ucuna geç
+
+ARAMA
+  /metin          ara (küçük harfle yazarsan büyük/küçük duyarsız)
+  n N             sonraki / önceki eşleşme
+  *               imleçteki kelimeyi ara
+  :noh            vurguyu kaldır
+
+DİL SUNUCUSU (LSP) — otomatik başlar (rust-analyzer, pyright, clangd, gopls ...)
+  (insert)        yazarken öneriler otomatik açılır
+  Tab Enter       öneriyi kabul et       ↑ ↓ Ctrl+n Ctrl+p  öneriler arasında gez
+  Ctrl+Space      önerileri elle aç (LSP yoksa dosyadaki kelimeler önerilir)
+  K               imleçteki sembolün bilgisi / dokümantasyonu
+  gd  F12         tanıma git             Ctrl+o  geri dön
+  Ctrl+tık        tanıma git
+  gr              referansları listele
+  ga              kod eylemleri / hızlı düzeltmeler (ör. eksik import)
+  ]d  [d          sonraki / önceki hata-uyarı
+  F2              yeniden adlandır (:rename yeniad)
+  Sağ tık         bağlam menüsü
+  :format         dosyayı biçimlendir     :diag  tüm tanıları listele
+  :lsp            sunucu durumu            :lsp restart | stop
+
+SİSTEM PANOSU
+  y d c x p       hepsi sistem panosuyla senkron (başka programdan kopyala → p)
+  Ctrl+c Ctrl+x   görsel modda kopyala / kes
+  Ctrl+v          insert modda panodan yapıştır
+  :set noclip     pano senkronunu kapat     :set clip  aç
+
+DISCORD
+  :discord              durum
+  :discord id <ID>      Discord uygulama kimliğini kaydet (bir kez)
+  :discord on | off     Rich Presence'ı aç / kapat
+
+FARE
+  Tıkla           imleci taşı / ağaçta dosya aç / sekme değiştir
+  Çift tık        kelime seç
+  Üçlü tık        satır seç
+  Sürükle         seçim yap
+  Tekerlek        kaydır
+  Orta tık        sekmeyi kapat (sekme çubuğunda)
+  Ayırıcı │       sürükleyerek ağaç genişliğini ayarla
+
+KLASÖR
+  Ctrl+k          klasör seçici: ok tuşları ile gez, Enter gir/aç,
+                  Backspace üst klasör, harf = o harfle başlayan klasöre atla
+  :open [yol]     klasör seçiciyi aç       :cd <yol>  doğrudan klasöre geç
+  1-9             (karşılama ekranında) son klasörü aç
+
+PENCERE
+  Ctrl+b          dosya ağacını aç / kapat
+  Ctrl+w  Tab     ağaç <-> editör odağı
+  Ctrl+s          kaydet
+  gt gT           sonraki / önceki sekme
+
+DOSYA AĞACI (odaktayken)
+  j k             gezin
+  Enter l o       aç / klasörü genişlet
+  h               klasörü daralt / üst klasöre çık
+  r               yenile
+  Esc q           editöre dön
+
+DİL
+  :lang en | tr   arayüz dilini değiştir (anında uygulanır, kaydedilir)
+
+KOMUTLAR
+  :w [dosya]      kaydet            :wa   hepsini kaydet
+  :q   :q!        sekmeyi kapat (sonuncuysa çık)
+  :wq  :x         kaydet ve kapat
+  :qa  :qa!       hepsinden çık
+  :e <dosya>      aç  (Tab ile tamamla)   :e!  diskten yeniden yükle
+  :enew           yeni boş sekme
+  :bn :bp :bd     sonraki / önceki sekme, sekmeyi kapat
+  :b N   :ls      N. sekmeye geç / sekmeleri listele
+  :42             42. satıra git
+  :s/a/b/g        satırda değiştir     :%s/a/b/g  tüm dosyada
+  :!komut         kabuk komutu çalıştır, çıktı yeni sekmede açılır
+                  (% = mevcut dosya;  örn.  :!cargo build   :!python %)
+  :cd <dizin>     çalışma dizinini değiştir   :pwd
+  :set nu|nonu|rnu|nornu    satır numaraları
+  :set et|noet              boşluk / tab ile girinti
+  :set lf|crlf              satır sonu biçimi
+  :tree           dosya ağacı
+  :help           bu ekran
