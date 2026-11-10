@@ -11,8 +11,12 @@ build = "build.rs"
 crossterm = "0.28"
 unicode-width = "0.2"
 serde_json = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 regex = { version = "1", default-features = false, features = ["std", "unicode", "perf"] }
-ureq = { version = "2", default-features = false, features = ["tls"] }
+ureq = { version = "2", default-features = false, features = ["tls", "native-certs", "proxy-from-env"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }

@@ -13,6 +13,8 @@ use std::time::Instant;
 
 #[path = "ai_ui.rs"]
 mod ai_ui;
+#[path = "debug_ui.rs"]
+mod debug_ui;
 #[path = "find.rs"]
 mod find;
 pub use find::{FindBar, Matcher};
@@ -43,6 +45,7 @@ pub enum Focus {
     Tree,
     Ai,
     Find,
+    Debug,
 }
 
 #[derive(Clone)]
@@ -64,6 +67,7 @@ enum Drag {
     Text,
     Sep,
     AiSep,
+    DbgSep,
 }
 
 pub struct Layout {
@@ -77,6 +81,9 @@ pub struct Layout {
     pub ed_w: u16,
     pub ai_x: u16,
     pub ai_w: u16,
+    pub dbg_y: u16,
+    pub dbg_h: u16,
+    pub dbg_cols: (u16, u16, u16),
 }
 
 pub struct Editor {
@@ -135,6 +142,9 @@ pub struct Editor {
     find_cache: RefCell<find::MatchCache>,
     insert_cp_pending: bool,
     ws_sym_id: Option<i64>,
+    pub dbg: debug_ui::Debugger,
+    pub dbg_hits: RefCell<Vec<(u16, u16, u16, debug_ui::DbgHit)>>,
+    pub dbg_cursor: Cell<Option<(u16, u16)>>,
     pub splash_hits: RefCell<Vec<(u16, usize)>>,
 }
 
@@ -277,6 +287,9 @@ impl Editor {
             find_cache: RefCell::new(None),
             insert_cp_pending: false,
             ws_sym_id: None,
+            dbg: debug_ui::Debugger::new(),
+            dbg_hits: RefCell::new(Vec::new()),
+            dbg_cursor: Cell::new(None),
         };
         if opened_dir {
             ed.push_recent(&root);
@@ -340,7 +353,17 @@ impl Editor {
             self.w
         };
         let text_w = ai_x.saturating_sub(text_x).max(1);
-        let text_h = self.h.saturating_sub(3).max(1);
+        let total_h = self.h.saturating_sub(3).max(1);
+        let dbg_h = if self.dbg.visible && total_h >= 14 {
+            self.dbg.height.clamp(6, total_h - 6)
+        } else {
+            0
+        };
+        let text_h = total_h - dbg_h;
+        let dbg_y = 1 + text_h;
+        let vw = self.w * 40 / 100;
+        let sw = self.w * 25 / 100;
+        let dbg_cols = (vw, sw, self.w.saturating_sub(vw + sw));
         let ed_w = ai_x.saturating_sub(ed_x);
         Layout {
             tree_w,
@@ -353,6 +376,9 @@ impl Editor {
             ed_w,
             ai_x,
             ai_w,
+            dbg_y,
+            dbg_h,
+            dbg_cols,
         }
     }
 
@@ -547,6 +573,24 @@ impl Editor {
         if is_ctrl(&k) && k.code == KeyCode::Char('l') {
             return self.ai_toggle();
         }
+        if let KeyCode::F(n) = k.code {
+            let shift = k.modifiers.contains(KeyModifiers::SHIFT);
+            let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+            match (n, shift, ctrl) {
+                (5, true, true) => return self.debug_restart(),
+                (5, true, false) => return self.debug_stop(),
+                (5, false, _) => return self.debug_start(),
+                (6, _, _) => return self.debug_step("pause"),
+                (9, _, _) => {
+                    let y = self.buf().cy;
+                    return self.toggle_breakpoint(y);
+                }
+                (10, _, _) => return self.debug_step("next"),
+                (11, true, _) => return self.debug_step("stepOut"),
+                (11, false, _) => return self.debug_step("stepIn"),
+                _ => {}
+            }
+        }
         if self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search) {
             let global = is_ctrl(&k)
                 && matches!(
@@ -559,6 +603,20 @@ impl Editor {
                 );
             if !global {
                 return self.ai_key(k);
+            }
+        }
+        if self.focus == Focus::Debug && !matches!(self.mode, Mode::Command | Mode::Search) {
+            let global = is_ctrl(&k)
+                && matches!(
+                    k.code,
+                    KeyCode::Char('w')
+                        | KeyCode::Char('b')
+                        | KeyCode::Char('k')
+                        | KeyCode::Char('s')
+                        | KeyCode::Char('f')
+                );
+            if !global {
+                return self.dbg_key(k);
             }
         }
         if self.focus == Focus::Find && !matches!(self.mode, Mode::Command | Mode::Search) {
@@ -610,6 +668,7 @@ impl Editor {
                     self.focus = match self.focus {
                         Focus::Editor if self.tree.visible => Focus::Tree,
                         Focus::Editor | Focus::Tree if self.ai.visible => Focus::Ai,
+                        Focus::Editor | Focus::Tree | Focus::Ai if self.dbg.visible => Focus::Debug,
                         _ => Focus::Editor,
                     };
                     return;
@@ -915,7 +974,11 @@ impl Editor {
             'n' => self.find_next(true),
             'N' => self.find_next(false),
             '*' => self.search_word(),
-            'K' => self.lsp_hover(),
+            'K' => {
+                if !self.debug_hover() {
+                    self.lsp_hover();
+                }
+            }
             _ => self.reset_pending(),
         }
     }
@@ -2060,6 +2123,36 @@ impl Editor {
             "hover" => self.lsp_hover(),
             "lsp" | "LspInfo" => self.lsp_command(arg),
             "discord" => self.discord_command(arg),
+            "debug" | "dbg" => self.debug_command(arg),
+            "install" => self.install_command(arg),
+            "uninstall" => self.uninstall_command(arg),
+            "break" | "breakpoint" => {
+                let y = self.buf().cy;
+                self.toggle_breakpoint(y);
+            }
+            "breakclear" => {
+                let keys: Vec<String> = self.dbg.bps.keys().cloned().collect();
+                for k in keys {
+                    if let Some(e) = self.dbg.bps.get_mut(&k) {
+                        e.1.clear();
+                    }
+                }
+                let y = self.buf().cy;
+                self.toggle_breakpoint(y);
+                self.toggle_breakpoint(y);
+                self.dbg.bps.clear();
+                self.info(t!("Tüm breakpoint'ler silindi", "All breakpoints cleared"));
+            }
+            "watch" => match arg_opt {
+                Some(e) => self.add_watch(e),
+                None => self.error(t!("Kullanım: :watch <ifade>", "Usage: :watch <expression>")),
+            },
+            "unwatch" => match arg.parse::<usize>() {
+                Ok(n) if n >= 1 && n <= self.dbg.watches.len() => {
+                    self.dbg.watches.remove(n - 1);
+                }
+                _ => self.dbg.watches.clear(),
+            },
             "ai" => self.ai_command(arg),
             "lang" | "language" | "dil" => self.set_lang(arg),
             "open" | "o" | "folder" => match arg_opt {
@@ -2076,6 +2169,7 @@ impl Editor {
     pub fn presence_tick(&mut self) {
         let b = self.buf();
         let details = match &b.path {
+            Some(_) if self.dbg.active() => format!("Debugging {}", b.name),
             Some(_) => format!("Editing {}", b.name),
             None if b.name == HELP_NAME => "Reading help".to_string(),
             None => "Idling".to_string(),
@@ -2588,7 +2682,40 @@ impl Editor {
         let in_text_rows = y >= l.top && y < l.top + l.text_h;
         let over_tree = self.tree.visible && x < l.tree_w && in_text_rows;
         let over_ai = self.ai.visible && x >= l.ai_x && in_text_rows;
+        let over_dbg = l.dbg_h > 0 && y >= l.dbg_y && y < l.dbg_y + l.dbg_h;
         match m.kind {
+            MouseEventKind::Down(MouseButton::Left) if over_dbg => {
+                if matches!(self.mode, Mode::Command | Mode::Search) {
+                    self.mode = Mode::Normal;
+                }
+                let now = Instant::now();
+                let double = matches!(self.last_click, Some((t, lx, ly)) if now.duration_since(t).as_millis() < 400 && lx == x && ly == y);
+                self.last_click = Some((now, x, y));
+                if !self.dbg_click(x, y, double) && y == l.dbg_y {
+                    self.drag = Drag::DbgSep;
+                }
+                return;
+            }
+            MouseEventKind::Drag(MouseButton::Left) if self.drag == Drag::DbgSep => {
+                let total = self.h.saturating_sub(3);
+                self.dbg.height = (total + 1).saturating_sub(y).clamp(6, total.saturating_sub(6).max(6));
+                return;
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if over_dbg => {
+                let d: isize = if m.kind == MouseEventKind::ScrollDown { 3 } else { -3 };
+                self.dbg_scroll(x, d);
+                return;
+            }
+            MouseEventKind::Down(MouseButton::Left)
+                if in_text_rows && x >= l.ed_x && x < l.text_x && !over_ai && !self.is_splash() =>
+            {
+                let ly = self.buf().scroll_y + (y - l.top) as usize;
+                let on_find = self.find.is_some() && self.find_click(x, y);
+                if !on_find && ly < self.buf().lines.len() {
+                    self.toggle_breakpoint(ly);
+                }
+                return;
+            }
             MouseEventKind::Down(MouseButton::Left) if over_ai => {
                 if matches!(self.mode, Mode::Command | Mode::Search) {
                     self.mode = Mode::Normal;
@@ -2776,7 +2903,7 @@ impl Editor {
                     b.cy = p.1;
                     b.sync_want();
                 }
-                Drag::None | Drag::AiSep => {}
+                Drag::None | Drag::AiSep | Drag::DbgSep => {}
             },
             MouseEventKind::Up(_) => self.drag = Drag::None,
             MouseEventKind::Down(MouseButton::Middle) => {

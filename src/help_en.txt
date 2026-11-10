@@ -72,6 +72,24 @@ LANGUAGE SERVER (LSP) — starts automatically (rust-analyzer, pyright, clangd, 
   :format         format file            :diag  list all diagnostics
   :lsp            server status          :lsp restart | stop
 
+DEBUGGING (DAP)
+  F5              start / continue         Shift+F5  stop     Ctrl+Shift+F5  restart
+  F9              toggle breakpoint (or click next to the line number)
+  F10  F11        step over / step into    Shift+F11  step out   F6  pause
+  K               (while paused) value of the expression under the cursor
+  Debug panel     variables, call stack and console; Tab switches sections,
+                  Enter expands a variable, type an expression in the console to evaluate it
+  :debug                  start debugging (Rust: runs cargo build automatically)
+  :debug <program> [args] debug a specific program (C/C++)
+  :debug args <args...>   program arguments       :debug panel  toggle the panel
+  :watch <expr>   add a watch      :unwatch [N]  remove watches
+  :breakclear     remove all breakpoints
+  Adapters: codelldb, lldb-dap or gdb 14+ (Rust/C/C++), debugpy (Python), dlv (Go)
+  Missing adapters are downloaded automatically on the first F5
+  :install        list debug tools   :install <name>  (re)install codelldb/debugpy/delve
+  :uninstall <name>  remove a downloaded tool
+  If .vscode/launch.json exists, its first supported configuration is used
+
 AI ASSISTANT
   Ctrl+L          toggle the AI panel (in visual mode the selection is attached)
   Enter           send                    Ctrl+J / Alt+Enter  newline

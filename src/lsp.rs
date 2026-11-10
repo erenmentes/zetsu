@@ -487,6 +487,7 @@ impl Lsp {
             "rootPath": root.to_string_lossy(),
             "workspaceFolders": [{ "uri": path_to_uri(&root), "name": root_name }],
             "capabilities": client_capabilities(),
+            "initializationOptions": init_options(lang),
         });
         srv.pending.insert(0, Pending::Init);
         srv.write(&json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": params }));
@@ -585,8 +586,19 @@ impl Lsp {
                         });
                     }
                     "workspace/configuration" => {
-                        let n = v["params"]["items"].as_array().map_or(0, |a| a.len());
-                        let res = Value::Array(vec![Value::Null; n]);
+                        let res: Vec<Value> = v["params"]["items"]
+                            .as_array()
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .map(|it| match it["section"].as_str() {
+                                        Some("rust-analyzer") => init_options("Rust"),
+                                        _ => Value::Null,
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let res = Value::Array(res);
                         s.write(&json!({ "jsonrpc": "2.0", "id": id, "result": res }));
                     }
                     "workspace/workspaceFolders" => {
@@ -743,6 +755,13 @@ fn expand_into(c: &[char], i: &mut usize, out: &mut String, best: &mut Option<(u
         }
         out.push(ch);
         *i += 1;
+    }
+}
+
+fn init_options(lang: &str) -> Value {
+    match lang {
+        "Rust" => json!({ "cargo": { "targetDir": true } }),
+        _ => Value::Null,
     }
 }
 

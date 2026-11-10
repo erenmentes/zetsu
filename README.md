@@ -13,6 +13,7 @@
 - **Modal editing** — Normal, Insert, Visual, Visual Line and Command modes with operator/motion composition (`d2w`, `cw`, `y3j`, `dt)`), counts and undo history.
 - **Language Server Protocol** — completion (including auto-imports and snippet expansion), diagnostics, hover, go to definition, references, code actions with resolve support, signature help, rename and document formatting. Servers are discovered on `PATH` and started on demand.
 - **Mouse** — click to place the cursor, drag to select, double/triple click for word/line selection, scroll, tab switching, context menu, Ctrl+click to jump to a definition, resizable file tree.
+- **Debugger (DAP)** — breakpoints, stepping, variables tree, call stack, watches and a debug console. Works with CodeLLDB, lldb-dap and gdb for Rust/C/C++, debugpy for Python and Delve for Go. Missing adapters are downloaded on first use, Rust projects are built automatically and `.vscode/launch.json` is supported.
 - **Find and replace** — inline find bar with live highlighting, match counter, case/whole-word/regex options, capture-group replacement and single-step undo for replace-all.
 - **Navigation** — document symbols, workspace symbol search, references, jump list.
 - **Workspace** — file tree, tabs, folder picker, recent workspaces, shell command integration (`:!cargo build`).
@@ -108,6 +109,17 @@ Press `:help` inside the editor for the full keymap.
 | `:diag` | list diagnostics |
 | `:lsp`, `:lsp restart` | server status / restart |
 
+### Debugging
+
+| Key | Action |
+|---|---|
+| `F5` | start / continue |
+| `Shift+F5` / `Ctrl+Shift+F5` | stop / restart |
+| `F9` or click the gutter | toggle breakpoint |
+| `F10` / `F11` / `Shift+F11` | step over / into / out |
+| `F6` | pause |
+| `K` | evaluate the expression under the cursor while paused |
+
 ### AI panel
 
 | Key | Action |
@@ -117,6 +129,36 @@ Press `:help` inside the editor for the full keymap.
 | `Ctrl+T` | toggle file context |
 | `Ctrl+N` / `Ctrl+H` | new chat / chat history |
 | `Ctrl+C` | stop streaming |
+
+## Debugger
+
+zetsu speaks the Debug Adapter Protocol. Open a file and press `F5`; no manual adapter setup is required. When no suitable adapter is found, zetsu downloads one into its data directory the first time and reuses it afterwards:
+
+| Language | Adapter | Provisioning |
+|---|---|---|
+| Rust, C, C++ | CodeLLDB | latest release from [vadimcn/codelldb](https://github.com/vadimcn/codelldb/releases) for the current OS and CPU (~55 MB download) |
+| Python | debugpy | universal wheel from PyPI, loaded via `PYTHONPATH`; neither `pip` nor a global install is needed |
+| Go | Delve | built with `go install` into the data directory |
+
+Adapters already on the system are used first: `codelldb`, `lldb-dap` or `gdb` 14+ on `PATH`, a Python environment that can import `debugpy`, or `dlv`. If a download fails (offline, blocked network), zetsu falls back to `lldb-dap` or `gdb` when available and reports the error in the debug console.
+
+Python 3.8+ must be installed for Python debugging, and Go for Go debugging, since those are the runtimes being debugged.
+
+Downloads honour `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` and the operating system's certificate store.
+
+| Command | |
+|---|---|
+| `:install` | show which tools are installed |
+| `:install <codelldb\|debugpy\|delve>` | install or update a tool |
+| `:uninstall <name>` | remove a downloaded tool |
+
+Tools are stored in `%LOCALAPPDATA%\zetsu\tools` on Windows and `$XDG_DATA_HOME/zetsu/tools` (default `~/.local/share/zetsu/tools`) on Linux and macOS.
+
+For Rust, zetsu runs `cargo build` and debugs the produced binary. For C/C++, pass the program with `:debug ./a.out [args]`. Program arguments can be set with `:debug args ...`.
+
+If the workspace contains `.vscode/launch.json`, the first `launch` configuration with a supported type (`lldb`, `lldb-dap`, `cppdbg`, `gdb`, `debugpy`, `python`, `go`) is used. Comments, trailing commas and the common `${workspaceFolder}`/`${file}` variables are supported, as is CodeLLDB's `cargo` field.
+
+CodeLLDB gives the best Rust experience: it pretty-prints `Vec`, `String`, `HashMap` and other standard types. In the debug console expressions are evaluated directly; prefix a line with `` ` `` to run a raw LLDB command (`` `frame info ``).
 
 ## AI assistant
 
@@ -213,6 +255,9 @@ src/
   ai.rs          AI providers, SSE streaming, chat storage
   ai_ui.rs       AI panel
   find.rs        find and replace bar, search matcher
+  dap.rs         Debug Adapter Protocol client, adapter discovery, launch configuration
+  debug_ui.rs    debugger session, breakpoints and the debug panel
+  tools.rs       debug adapter download and installation
   discord.rs     Discord IPC client
   i18n.rs        localization
   config.rs      settings file

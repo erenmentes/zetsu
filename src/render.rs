@@ -23,6 +23,8 @@ pub(crate) const BAR: Color = rgb(0x21, 0x25, 0x2b);
 pub(crate) const SEL: Color = rgb(0x3e, 0x44, 0x51);
 const FIND: Color = rgb(0x5a, 0x4a, 0x1e);
 const FIND_CUR: Color = rgb(0x8a, 0x6a, 0x1e);
+const EXEC: Color = rgb(0x2e, 0x3b, 0x26);
+const BP: Color = rgb(0xe5, 0x48, 0x4d);
 const INK: Color = rgb(0x1b, 0x1e, 0x23);
 pub(crate) const LOGO_GREEN: Color = rgb(0x3d, 0xd6, 0x8c);
 pub(crate) const POP: Color = rgb(0x28, 0x2c, 0x34);
@@ -141,6 +143,7 @@ impl Editor {
             self.draw_text(s, &l);
         }
         self.draw_ai(s, &l);
+        self.draw_debug(s, &l);
         self.draw_find(s, &l);
         self.draw_status(s);
         self.draw_cmdline(s);
@@ -159,6 +162,7 @@ impl Editor {
             _ if self.menu.is_some() => None,
             _ if self.focus == Focus::Ai => self.ai_cursor.get(),
             _ if self.focus == Focus::Find => self.find_cursor.get(),
+            _ if self.focus == Focus::Debug => self.dbg_cursor.get(),
             _ if self.focus == Focus::Tree => None,
             _ if self.is_splash() => None,
             _ => {
@@ -380,6 +384,11 @@ impl Editor {
         }
         let right = b.scroll_x + l.text_w as usize;
         let diags = self.buf_diags(self.cur);
+        let cur_path = b.path.as_deref();
+        let exec_line = match (&self.dbg.at, cur_path) {
+            (Some((p, line)), Some(cp)) if crate::lsp::path_key(p) == crate::lsp::path_key(cp) => Some(*line),
+            _ => None,
+        };
         for row in 0..l.text_h {
             let sy = l.top + row;
             let ly = b.scroll_y + row as usize;
@@ -414,6 +423,19 @@ impl Editor {
             }
             if sign != 0 && sign < 4 {
                 s.put_char(l.ed_x, sy, '●', Style::fg(sev_color(sign)));
+            }
+            if let Some(v) = cur_path.and_then(|p| self.dbg.has_bp(p, ly)) {
+                s.put_char(
+                    l.ed_x,
+                    sy,
+                    if v { '●' } else { '○' },
+                    Style::fg(if v { BP } else { DIM }),
+                );
+            }
+            let exec = exec_line == Some(ly);
+            if exec {
+                s.put_char(l.ed_x, sy, '▶', Style::fg(TYPE).bold());
+                s.fill(l.text_x, sy, l.text_w, Style::new().on(EXEC));
             }
             if self.numbers {
                 let num = if self.relative && ly != b.cy {
@@ -453,6 +475,8 @@ impl Editor {
                     st = st.on(FIND_CUR);
                 } else if mask[i] == 1 {
                     st = st.on(FIND);
+                } else if exec {
+                    st = st.on(EXEC);
                 }
                 if ulm[i] != 0 {
                     st = st.underline(sev_color(ulm[i]));
@@ -485,7 +509,10 @@ impl Editor {
         let tree_mode = self.focus == Focus::Tree && !matches!(self.mode, Mode::Command | Mode::Search);
         let ai_mode = self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search);
         let find_mode = self.focus == Focus::Find && !matches!(self.mode, Mode::Command | Mode::Search);
-        let (label, color) = if find_mode {
+        let dbg_mode = self.focus == Focus::Debug && !matches!(self.mode, Mode::Command | Mode::Search);
+        let (label, color) = if dbg_mode {
+            ("DEBUG", ERR)
+        } else if find_mode {
             (t!("BUL", "FIND"), TYPE)
         } else if ai_mode {
             ("AI", LOGO_GREEN)

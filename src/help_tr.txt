@@ -72,6 +72,24 @@ DİL SUNUCUSU (LSP) — otomatik başlar (rust-analyzer, pyright, clangd, gopls 
   :format         dosyayı biçimlendir     :diag  tüm tanıları listele
   :lsp            sunucu durumu            :lsp restart | stop
 
+DEBUG (DAP)
+  F5              başlat / devam et        Shift+F5  durdur   Ctrl+Shift+F5  yeniden başlat
+  F9              breakpoint koy/kaldır (satır numarasının yanına tıklamak da olur)
+  F10  F11        üzerinden geç / içine gir   Shift+F11  dışına çık   F6  duraklat
+  K               (durmuşken) imleçteki ifadenin değeri
+  Debug paneli    değişkenler, çağrı yığını ve konsol; Tab ile bölümler arasında geç,
+                  Enter ile değişkeni aç, konsolda ifade yazıp çalıştır
+  :debug                  debug'ı başlat (Rust: cargo build otomatik)
+  :debug <program> [arg]  belirli bir programı debug et (C/C++)
+  :debug args <arg...>    program argümanları     :debug panel  paneli aç/kapat
+  :watch <ifade>  izleme ekle      :unwatch [N]  izlemeyi kaldır
+  :breakclear     tüm breakpoint'leri sil
+  Adapter'lar: codelldb, lldb-dap veya gdb 14+ (Rust/C/C++), debugpy (Python), dlv (Go)
+  Eksik adapter'lar ilk F5'te otomatik indirilir
+  :install        debug araçlarını listele   :install <ad>  codelldb/debugpy/delve kur
+  :uninstall <ad> indirilen bir aracı kaldır
+  .vscode/launch.json varsa oradaki ilk uygun yapılandırma kullanılır
+
 AI ASİSTANI
   Ctrl+L          AI panelini aç / kapat (görsel seçimdeyken seçimi bağlam olarak ekler)
   Enter           gönder                  Ctrl+J / Alt+Enter  yeni satır

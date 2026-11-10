@@ -3,12 +3,14 @@ mod i18n;
 mod ai;
 mod buffer;
 mod config;
+mod dap;
 mod discord;
 mod editor;
 mod highlight;
 mod lsp;
 mod render;
 mod screen;
+mod tools;
 mod tree;
 
 use crossterm::cursor::{SetCursorStyle, Show};
@@ -73,6 +75,9 @@ fn run(ed: &mut Editor) -> io::Result<()> {
             redraw = true;
         }
         if ed.ai_tick() {
+            redraw = true;
+        }
+        if ed.debug_tick() {
             redraw = true;
         }
         ed.presence_tick();

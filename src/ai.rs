@@ -126,6 +126,7 @@ fn chats_dir() -> Option<PathBuf> {
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
+        .try_proxy_from_env(true)
         .timeout_connect(Duration::from_secs(15))
         .timeout_read(Duration::from_secs(180))
         .user_agent(concat!("zetsu/", env!("CARGO_PKG_VERSION")))

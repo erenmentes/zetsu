@@ -1528,6 +1528,10 @@ impl Editor {
         ));
         items.push((t!("Tümünü seç", "Select all").into(), MenuAction::Cmd("selectall")));
         items.push((
+            t!("Breakpoint          F9", "Toggle breakpoint   F9").into(),
+            MenuAction::Cmd("breakpoint"),
+        ));
+        items.push((
             t!("Bul ve değiştir     Ctrl+H", "Find and replace    Ctrl+H").into(),
             MenuAction::Cmd("find"),
         ));
@@ -1560,6 +1564,10 @@ impl Editor {
             "format" => self.lsp_format(),
             "symbols" => self.lsp_document_symbols(),
             "find" => self.open_find(true),
+            "breakpoint" => {
+                let y = self.buf().cy;
+                self.toggle_breakpoint(y);
+            }
             "copy" => {
                 if visual {
                     self.visual_op('y');
