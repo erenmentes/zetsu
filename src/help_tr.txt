@@ -32,11 +32,22 @@ DÜZENLEME
   J               satırları birleştir
   >> <<           girintiyi artır / azalt
   u  Ctrl+r       geri al / yinele
+  Ctrl+Z          geri al (her modda)    Ctrl+Y  Ctrl+Shift+Z  yinele
 
 GÖRSEL MOD
   d x y c         sil / sil / kopyala / değiştir
   > < ~ J p       girinti / harf / birleştir / üzerine yapıştır
   o               seçimin diğer ucuna geç
+
+BUL VE DEĞİŞTİR
+  Ctrl+F          bul çubuğu              Ctrl+H  bul ve değiştir
+  Enter  ↓  F3    sonraki eşleşme         Shift+Enter  ↑  önceki
+  Tab             bul / değiştir alanı arasında geç
+  Alt+C Alt+W Alt+R   büyük/küçük harf, tam kelime, regex
+  Enter (değiştir alanında)   değiştir ve sonrakine geç
+  Alt+Enter / Ctrl+Enter      tümünü değiştir (Ctrl+Z ile tek adımda geri alınır)
+  Regex modunda $1, $2 ... yakalama grupları kullanılabilir
+  Esc             çubuğu kapat
 
 ARAMA
   /metin          ara (küçük harfle yazarsan büyük/küçük duyarsız)
@@ -51,8 +62,10 @@ DİL SUNUCUSU (LSP) — otomatik başlar (rust-analyzer, pyright, clangd, gopls 
   K               imleçteki sembolün bilgisi / dokümantasyonu
   gd  F12         tanıma git             Ctrl+o  geri dön
   Ctrl+tık        tanıma git
-  gr              referansları listele
-  ga              kod eylemleri / hızlı düzeltmeler (ör. eksik import)
+  gr  Shift+F12   referansları listele
+  gs  Ctrl+Shift+O  dosyadaki semboller (yazarak filtrele)
+  gS  Ctrl+T      projede sembol ara
+  ga  Ctrl+.      kod eylemleri / hızlı düzeltmeler (ör. eksik import)
   ]d  [d          sonraki / önceki hata-uyarı
   F2              yeniden adlandır (:rename yeniad)
   Sağ tık         bağlam menüsü

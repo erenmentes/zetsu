@@ -57,6 +57,7 @@ pub struct Menu {
     pub filter: Option<String>,
     pub base: Vec<(String, MenuAction)>,
     pub custom_model: bool,
+    pub ws_symbols: bool,
 }
 
 impl Menu {
@@ -71,6 +72,7 @@ impl Menu {
             dir: None,
             filter: Some(String::new()),
             custom_model,
+            ws_symbols: false,
         }
     }
 
@@ -309,6 +311,8 @@ impl Editor {
                     }
                     Pending::CompResolve(buf) => self.on_comp_resolve(lang, buf, result),
                     Pending::Hover => self.on_hover(result),
+                    Pending::DocSymbols => self.on_doc_symbols(lang, result),
+                    Pending::WsSymbols => self.on_ws_symbols(lang, id, result),
                     Pending::Definition => self.on_definition(lang, result),
                     Pending::References => self.on_references(lang, result),
                     Pending::CodeAction => self.on_code_actions(lang, result),
@@ -452,6 +456,7 @@ impl Editor {
             filter: None,
             base: Vec::new(),
             custom_model: false,
+            ws_symbols: false,
         });
     }
 
@@ -703,6 +708,7 @@ impl Editor {
             filter: None,
             base: Vec::new(),
             custom_model: false,
+            ws_symbols: false,
         });
     }
 
@@ -737,6 +743,7 @@ impl Editor {
             filter: None,
             base: Vec::new(),
             custom_model: false,
+            ws_symbols: false,
         });
     }
 
@@ -1284,11 +1291,19 @@ impl Editor {
                 KeyCode::Char(c) if !ctrl => {
                     m.filter.as_mut().unwrap().push(c);
                     m.apply_filter();
+                    if m.ws_symbols {
+                        let q = m.filter.clone().unwrap_or_default();
+                        self.ws_symbols_query(&q);
+                    }
                     return;
                 }
                 KeyCode::Backspace => {
                     m.filter.as_mut().unwrap().pop();
                     m.apply_filter();
+                    if m.ws_symbols {
+                        let q = m.filter.clone().unwrap_or_default();
+                        self.ws_symbols_query(&q);
+                    }
                     return;
                 }
                 KeyCode::Enter if n == 0 && m.custom_model => {
@@ -1457,6 +1472,7 @@ impl Editor {
             filter: None,
             base: Vec::new(),
             custom_model: false,
+            ws_symbols: false,
         });
         self.menu_follow();
     }
@@ -1486,6 +1502,10 @@ impl Editor {
                 MenuAction::Cmd("rename"),
             ));
             items.push((t!("Biçimlendir", "Format document").into(), MenuAction::Cmd("format")));
+            items.push((
+                t!("Semboller           gs", "Symbols             gs").into(),
+                MenuAction::Cmd("symbols"),
+            ));
         }
         if visual {
             items.push((
@@ -1507,6 +1527,10 @@ impl Editor {
             MenuAction::Cmd("paste"),
         ));
         items.push((t!("Tümünü seç", "Select all").into(), MenuAction::Cmd("selectall")));
+        items.push((
+            t!("Bul ve değiştir     Ctrl+H", "Find and replace    Ctrl+H").into(),
+            MenuAction::Cmd("find"),
+        ));
         self.ctx_pos = Some((x, y));
         self.menu = Some(Menu {
             title: String::new(),
@@ -1518,6 +1542,7 @@ impl Editor {
             filter: None,
             base: Vec::new(),
             custom_model: false,
+            ws_symbols: false,
         });
     }
 
@@ -1533,6 +1558,8 @@ impl Editor {
             "hover" => self.lsp_hover(),
             "rename" => self.start_rename(),
             "format" => self.lsp_format(),
+            "symbols" => self.lsp_document_symbols(),
+            "find" => self.open_find(true),
             "copy" => {
                 if visual {
                     self.visual_op('y');
@@ -1664,6 +1691,173 @@ impl Editor {
                     .join("  |  ");
                 self.info(s);
             }
+        }
+    }
+
+    pub(crate) fn lsp_document_symbols(&mut self) {
+        self.back_to_normal();
+        let Some(lang) = self.ready_lang("documentSymbolProvider") else {
+            return;
+        };
+        let uri = path_to_uri(self.buf().path.as_ref().unwrap());
+        self.lsp.request(
+            lang,
+            "textDocument/documentSymbol",
+            json!({ "textDocument": { "uri": uri } }),
+            Pending::DocSymbols,
+        );
+    }
+
+    pub(crate) fn workspace_symbols(&mut self) {
+        self.back_to_normal();
+        let Some(_) = self.ready_lang("workspaceSymbolProvider") else {
+            return;
+        };
+        self.menu = Some(Menu {
+            title: t!("Proje sembolleri", "Workspace symbols").to_string(),
+            items: Vec::new(),
+            sel: 0,
+            scroll: 0,
+            anchor: None,
+            dir: None,
+            filter: Some(String::new()),
+            base: Vec::new(),
+            custom_model: false,
+            ws_symbols: true,
+        });
+    }
+
+    fn ws_symbols_query(&mut self, q: &str) {
+        let Some(lang) = self.cur_ready() else { return };
+        if let Some(old) = self.ws_sym_id.take() {
+            self.lsp.cancel(lang, old);
+        }
+        if q.is_empty() {
+            return;
+        }
+        self.ws_sym_id = self
+            .lsp
+            .request(lang, "workspace/symbol", json!({ "query": q }), Pending::WsSymbols);
+    }
+
+    fn symbol_label(kind: u64) -> &'static str {
+        match kind {
+            1 => "file",
+            2 => "mod",
+            3 => "ns",
+            4 => "pkg",
+            5 => "class",
+            6 => "meth",
+            7 => "prop",
+            8 => "field",
+            9 => "new",
+            10 => "enum",
+            11 => "trait",
+            12 => "fn",
+            13 => "var",
+            14 => "const",
+            15 => "str",
+            16 => "num",
+            17 => "bool",
+            18 => "arr",
+            19 => "obj",
+            20 => "key",
+            21 => "null",
+            22 => "member",
+            23 => "struct",
+            24 => "event",
+            25 => "op",
+            26 => "type",
+            _ => "",
+        }
+    }
+
+    fn on_doc_symbols(&mut self, lang: &'static str, r: Value) {
+        let enc = self.lsp.enc(lang);
+        let Some(path) = self.buf().path.clone() else { return };
+        let mut flat: Vec<(usize, u64, String, String, usize, usize)> = Vec::new();
+        fn walk(v: &Value, depth: usize, out: &mut Vec<(usize, u64, String, String, usize, usize)>) {
+            for s in v.as_array().into_iter().flatten() {
+                let range = if s["selectionRange"].is_object() {
+                    &s["selectionRange"]
+                } else {
+                    &s["location"]["range"]
+                };
+                out.push((
+                    depth,
+                    s["kind"].as_u64().unwrap_or(0),
+                    s["name"].as_str().unwrap_or("").to_string(),
+                    s["detail"]
+                        .as_str()
+                        .unwrap_or("")
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                    range["start"]["line"].as_u64().unwrap_or(0) as usize,
+                    range["start"]["character"].as_u64().unwrap_or(0) as usize,
+                ));
+                walk(&s["children"], depth + 1, out);
+            }
+        }
+        walk(&r, 0, &mut flat);
+        if flat.is_empty() {
+            return self.info(t!("Sembol bulunamadı", "No symbols found"));
+        }
+        if flat.iter().all(|f| f.0 == 0) {
+            flat.sort_by_key(|f| (f.4, f.5));
+        }
+        let cy = self.buf().cy;
+        let sel = flat.iter().rposition(|f| f.4 <= cy).unwrap_or(0);
+        let items: Vec<(String, MenuAction)> = flat
+            .into_iter()
+            .map(|(depth, kind, name, detail, line, col)| {
+                let mut label = format!("{}{:<7}{}", "  ".repeat(depth), Self::symbol_label(kind), name);
+                if !detail.is_empty() {
+                    label = format!("{}  {}", label, detail);
+                }
+                (label, MenuAction::Jump(path.clone(), line, col, enc))
+            })
+            .collect();
+        let n = items.len();
+        let mut m = Menu::filterable(tf!("Semboller ({})", "Symbols ({})", n), items, sel, false);
+        m.sel = sel;
+        self.menu = Some(m);
+        self.menu_follow();
+    }
+
+    fn on_ws_symbols(&mut self, lang: &'static str, id: i64, r: Value) {
+        if self.ws_sym_id != Some(id) {
+            return;
+        }
+        self.ws_sym_id = None;
+        let enc = self.lsp.enc(lang);
+        let items: Vec<(String, MenuAction)> = r
+            .as_array()
+            .into_iter()
+            .flatten()
+            .take(300)
+            .filter_map(|s| {
+                let loc = &s["location"];
+                let path = loc["uri"].as_str().and_then(uri_to_path)?;
+                let line = loc["range"]["start"]["line"].as_u64().unwrap_or(0) as usize;
+                let col = loc["range"]["start"]["character"].as_u64().unwrap_or(0) as usize;
+                let kind = Self::symbol_label(s["kind"].as_u64().unwrap_or(0));
+                let name = s["name"].as_str().unwrap_or("");
+                let container = s["containerName"].as_str().filter(|c| !c.is_empty());
+                let mut label = format!("{:<7}{}", kind, name);
+                if let Some(c) = container {
+                    label = format!("{}  ({})", label, c);
+                }
+                label = format!("{}  {}:{}", label, self.rel(&path), line + 1);
+                Some((label, MenuAction::Jump(path, line, col, enc)))
+            })
+            .collect();
+        if let Some(m) = self.menu.as_mut().filter(|m| m.ws_symbols) {
+            m.base = items.clone();
+            m.items = items;
+            m.sel = 0;
+            m.scroll = 0;
         }
     }
 }

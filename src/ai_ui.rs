@@ -349,6 +349,7 @@ impl Editor {
             filter: None,
             base: Vec::new(),
             custom_model: false,
+            ws_symbols: false,
         });
     }
 

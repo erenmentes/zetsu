@@ -194,6 +194,8 @@ pub enum Pending {
     Signature,
     Format(PathBuf),
     Rename,
+    DocSymbols,
+    WsSymbols,
     Execute,
 }
 

@@ -49,6 +49,7 @@ cargo test
 | `src/ide.rs` | LSP features: completion, diagnostics, code actions, menus |
 | `src/lsp.rs` | LSP client and JSON-RPC transport |
 | `src/ai.rs`, `src/ai_ui.rs` | AI providers and the AI panel |
+| `src/find.rs` | find and replace bar, search matcher |
 | `src/buffer.rs` | text buffer, undo/redo, motions |
 | `src/render.rs`, `src/screen.rs` | drawing and the diff-based screen buffer |
 | `src/highlight.rs` | syntax highlighting |

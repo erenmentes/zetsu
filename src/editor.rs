@@ -13,6 +13,9 @@ use std::time::Instant;
 
 #[path = "ai_ui.rs"]
 mod ai_ui;
+#[path = "find.rs"]
+mod find;
+pub use find::{FindBar, Matcher};
 #[path = "ide.rs"]
 mod ide;
 pub use ide::{Menu, Popup, MENU_ROWS, POPUP_ROWS};
@@ -39,6 +42,7 @@ pub enum Focus {
     Editor,
     Tree,
     Ai,
+    Find,
 }
 
 #[derive(Clone)]
@@ -85,7 +89,7 @@ pub struct Editor {
     pub cmd_x: usize,
     pub msg: Option<(String, bool)>,
     pub reg: Reg,
-    pub search: Option<Vec<char>>,
+    pub search: Option<Matcher>,
     pub hl_search: bool,
     pub numbers: bool,
     pub relative: bool,
@@ -125,6 +129,12 @@ pub struct Editor {
     ai_pick_pending: bool,
     pub ai_hits: RefCell<Vec<(u16, u16, u16, ai_ui::AiHit)>>,
     pub ai_cursor: Cell<Option<(u16, u16)>>,
+    pub find: Option<FindBar>,
+    pub find_hits: RefCell<Vec<(u16, u16, u16, find::FindHit)>>,
+    pub find_cursor: Cell<Option<(u16, u16)>>,
+    find_cache: RefCell<find::MatchCache>,
+    insert_cp_pending: bool,
+    ws_sym_id: Option<i64>,
     pub splash_hits: RefCell<Vec<(u16, usize)>>,
 }
 
@@ -156,23 +166,6 @@ pub fn absolute(p: &Path) -> PathBuf {
         }
     }
     out
-}
-
-pub fn find_all(line: &[char], pat: &[char]) -> Vec<usize> {
-    if pat.is_empty() || pat.len() > line.len() {
-        return Vec::new();
-    }
-    let ic = !pat.iter().any(|c| c.is_uppercase());
-    let eq = |a: char, b: char| {
-        if ic {
-            a.to_lowercase().eq(b.to_lowercase())
-        } else {
-            a == b
-        }
-    };
-    (0..=line.len() - pat.len())
-        .filter(|&i| pat.iter().enumerate().all(|(j, &p)| eq(line[i + j], p)))
-        .collect()
 }
 
 fn toggle_case(c: char) -> char {
@@ -278,6 +271,12 @@ impl Editor {
             ai_pick_pending: false,
             ai_hits: RefCell::new(Vec::new()),
             ai_cursor: Cell::new(None),
+            find: None,
+            find_hits: RefCell::new(Vec::new()),
+            find_cursor: Cell::new(None),
+            find_cache: RefCell::new(None),
+            insert_cp_pending: false,
+            ws_sym_id: None,
         };
         if opened_dir {
             ed.push_recent(&root);
@@ -552,10 +551,30 @@ impl Editor {
             let global = is_ctrl(&k)
                 && matches!(
                     k.code,
-                    KeyCode::Char('w') | KeyCode::Char('b') | KeyCode::Char('k') | KeyCode::Char('s')
+                    KeyCode::Char('w')
+                        | KeyCode::Char('b')
+                        | KeyCode::Char('k')
+                        | KeyCode::Char('s')
+                        | KeyCode::Char('f')
                 );
             if !global {
                 return self.ai_key(k);
+            }
+        }
+        if self.focus == Focus::Find && !matches!(self.mode, Mode::Command | Mode::Search) {
+            let global = is_ctrl(&k)
+                && matches!(
+                    k.code,
+                    KeyCode::Char('w')
+                        | KeyCode::Char('b')
+                        | KeyCode::Char('k')
+                        | KeyCode::Char('s')
+                        | KeyCode::Char('z')
+                        | KeyCode::Char('y')
+                        | KeyCode::Char('t')
+                );
+            if !global {
+                return self.find_key(k);
             }
         }
         if is_ctrl(&k) {
@@ -572,6 +591,19 @@ impl Editor {
                     let d = self.tree.root.clone();
                     self.folder_picker(d, None);
                     return;
+                }
+                KeyCode::Char('f') => return self.open_find(false),
+                KeyCode::Char('h') => return self.open_find(true),
+                KeyCode::Char('z') if k.modifiers.contains(KeyModifiers::SHIFT) => return self.redo_any(),
+                KeyCode::Char('Z') => return self.redo_any(),
+                KeyCode::Char('z') => return self.undo_any(),
+                KeyCode::Char('y') => return self.redo_any(),
+                KeyCode::Char('t') => return self.workspace_symbols(),
+                KeyCode::Char('O') => return self.lsp_document_symbols(),
+                KeyCode::Char('o') if k.modifiers.contains(KeyModifiers::SHIFT) => return self.lsp_document_symbols(),
+                KeyCode::Char('.') => {
+                    self.back_to_normal();
+                    return self.lsp_code_actions();
                 }
                 KeyCode::Char('w') => {
                     self.back_to_normal();
@@ -793,6 +825,7 @@ impl Editor {
         }
         match k.code {
             KeyCode::F(2) => return self.start_rename(),
+            KeyCode::F(12) if k.modifiers.contains(KeyModifiers::SHIFT) => return self.lsp_references(),
             KeyCode::F(12) => return self.lsp_definition(),
             KeyCode::PageDown => return self.full_page(true),
             KeyCode::PageUp => return self.full_page(false),
@@ -910,6 +943,14 @@ impl Editor {
                 'a' if self.op.is_none() => {
                     self.reset_pending();
                     self.lsp_code_actions();
+                }
+                's' if self.op.is_none() => {
+                    self.reset_pending();
+                    self.lsp_document_symbols();
+                }
+                'S' if self.op.is_none() => {
+                    self.reset_pending();
+                    self.workspace_symbols();
                 }
                 _ => self.reset_pending(),
             },
@@ -1309,6 +1350,40 @@ impl Editor {
         self.buf_mut().sync_want();
     }
 
+    pub(crate) fn undo_any(&mut self) {
+        match self.mode {
+            Mode::Insert => {
+                self.popup = None;
+                self.sig = None;
+                if !self.insert_cp_pending {
+                    self.buf_mut().drop_noop_checkpoint();
+                }
+                self.undo();
+                self.insert_cp_pending = true;
+            }
+            Mode::Visual | Mode::VisualLine => {
+                self.mode = Mode::Normal;
+                self.undo();
+            }
+            _ => self.undo(),
+        }
+        let allow = self.mode == Mode::Insert;
+        self.buf_mut().clamp(allow);
+    }
+
+    pub(crate) fn redo_any(&mut self) {
+        if matches!(self.mode, Mode::Visual | Mode::VisualLine) {
+            self.mode = Mode::Normal;
+        }
+        if self.mode == Mode::Insert {
+            self.popup = None;
+            self.insert_cp_pending = true;
+        }
+        self.redo();
+        let allow = self.mode == Mode::Insert;
+        self.buf_mut().clamp(allow);
+    }
+
     fn undo(&mut self) {
         if !self.buf_mut().undo() {
             self.info(t!("Geri alınacak bir şey yok", "Already at oldest change"));
@@ -1345,6 +1420,7 @@ impl Editor {
     }
 
     fn enter_insert(&mut self, checkpoint: bool) {
+        self.insert_cp_pending = false;
         if checkpoint {
             self.buf_mut().checkpoint();
         }
@@ -1358,8 +1434,11 @@ impl Editor {
         self.popup = None;
         self.sig = None;
         self.comp_id = None;
+        let pending = std::mem::take(&mut self.insert_cp_pending);
         let b = self.buf_mut();
-        b.drop_noop_checkpoint();
+        if !pending {
+            b.drop_noop_checkpoint();
+        }
         if b.cx > 0 {
             b.cx -= 1;
         }
@@ -1388,6 +1467,18 @@ impl Editor {
 
     fn insert_key(&mut self, k: KeyEvent) {
         let ctrl = is_ctrl(&k);
+        if self.insert_cp_pending {
+            let modifies = match k.code {
+                KeyCode::Char('v') => true,
+                KeyCode::Char(_) => !ctrl,
+                KeyCode::Enter | KeyCode::Backspace | KeyCode::Delete | KeyCode::Tab => true,
+                _ => false,
+            };
+            if modifies {
+                self.insert_cp_pending = false;
+                self.buf_mut().checkpoint();
+            }
+        }
         if self.popup.is_some() {
             match k.code {
                 KeyCode::Down => return self.popup_move(1),
@@ -1428,7 +1519,6 @@ impl Editor {
                     b.cy = p.1;
                 }
             }
-            KeyCode::Char('h') if ctrl => self.backspace(),
             KeyCode::Enter => {
                 self.sig = None;
                 self.insert_newline();
@@ -1602,6 +1692,13 @@ impl Editor {
     fn on_paste(&mut self, s: &str) {
         if self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search) {
             return self.ai_paste(s);
+        }
+        if self.focus == Focus::Find && !matches!(self.mode, Mode::Command | Mode::Search) {
+            return self.find_paste(s);
+        }
+        if self.mode == Mode::Insert && self.insert_cp_pending {
+            self.insert_cp_pending = false;
+            self.buf_mut().checkpoint();
         }
         let text: Vec<char> = s.replace("\r\n", "\n").replace('\r', "\n").chars().collect();
         match self.mode {
@@ -1956,6 +2053,10 @@ impl Editor {
             "diag" | "diagnostics" => self.diag_menu(),
             "def" | "definition" => self.lsp_definition(),
             "refs" | "references" => self.lsp_references(),
+            "symbols" | "sym" => self.lsp_document_symbols(),
+            "wsymbols" | "wsym" => self.workspace_symbols(),
+            "find" => self.open_find(false),
+            "replace" => self.open_find(true),
             "hover" => self.lsp_hover(),
             "lsp" | "LspInfo" => self.lsp_command(arg),
             "discord" => self.discord_command(arg),
@@ -2321,7 +2422,7 @@ impl Editor {
 
     fn do_search(&mut self, s: &str) {
         if !s.is_empty() {
-            self.search = Some(s.chars().collect());
+            self.search = Some(Matcher::smart(s, false));
         }
         self.find_next(true);
     }
@@ -2340,12 +2441,13 @@ impl Editor {
         while e < line.len() && cls(line[e]) == 1 {
             e += 1;
         }
-        self.search = Some(line[s..e].to_vec());
+        let word: String = line[s..e].iter().collect();
+        self.search = Some(Matcher::new(&word, true, true, false).unwrap_or_else(|_| Matcher::smart(&word, true)));
         self.find_next(true);
     }
 
     fn find_next(&mut self, fwd: bool) {
-        let Some(pat) = self.search.clone() else {
+        let Some(m) = self.search.clone() else {
             return self.error(t!("Arama deseni yok", "No previous search pattern"));
         };
         self.hl_search = true;
@@ -2355,7 +2457,7 @@ impl Editor {
         let mut found = None;
         for i in 0..=n {
             let y = if fwd { (cy + i) % n } else { (cy + n - i % n) % n };
-            let ms = find_all(&b.lines[y], &pat);
+            let ms: Vec<usize> = m.find_line(&b.lines[y]).into_iter().map(|r| r.0).collect();
             let pick = if fwd {
                 if i == 0 {
                     ms.iter().find(|&&x| x > cx)
@@ -2376,7 +2478,7 @@ impl Editor {
                 break;
             }
         }
-        let p: String = pat.iter().collect();
+        let p = m.pattern.clone();
         match found {
             Some((x, y)) => {
                 let wrapped = if fwd { (y, x) <= (cy, cx) } else { (y, x) >= (cy, cx) };
@@ -2557,6 +2659,9 @@ impl Editor {
                         self.tree.sel = i;
                         self.tree_activate(i);
                     }
+                    return;
+                }
+                if self.find.is_some() && self.find_click(x, y) {
                     return;
                 }
                 if x >= l.ed_x && x < l.ai_x && self.is_splash() {

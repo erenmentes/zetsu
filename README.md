@@ -13,6 +13,8 @@
 - **Modal editing** — Normal, Insert, Visual, Visual Line and Command modes with operator/motion composition (`d2w`, `cw`, `y3j`, `dt)`), counts and undo history.
 - **Language Server Protocol** — completion (including auto-imports and snippet expansion), diagnostics, hover, go to definition, references, code actions with resolve support, signature help, rename and document formatting. Servers are discovered on `PATH` and started on demand.
 - **Mouse** — click to place the cursor, drag to select, double/triple click for word/line selection, scroll, tab switching, context menu, Ctrl+click to jump to a definition, resizable file tree.
+- **Find and replace** — inline find bar with live highlighting, match counter, case/whole-word/regex options, capture-group replacement and single-step undo for replace-all.
+- **Navigation** — document symbols, workspace symbol search, references, jump list.
 - **Workspace** — file tree, tabs, folder picker, recent workspaces, shell command integration (`:!cargo build`).
 - **System clipboard** — yank, delete and paste are synced with the OS clipboard on Windows, macOS, X11 and Wayland.
 - **Syntax highlighting** for Rust, C/C++, Python, JavaScript/TypeScript, Go, Shell, Lua, TOML/YAML and JSON.
@@ -84,7 +86,8 @@ Press `:help` inside the editor for the full keymap.
 | `Ctrl+B` | toggle file tree |
 | `Ctrl+W` | switch focus between tree and editor |
 | `gt` / `gT` | next / previous tab |
-| `u` / `Ctrl+R` | undo / redo |
+| `Ctrl+Z` / `Ctrl+Y` | undo / redo (also `u` / `Ctrl+R`) |
+| `Ctrl+F` / `Ctrl+H` | find / find and replace |
 
 ### LSP
 
@@ -95,8 +98,10 @@ Press `:help` inside the editor for the full keymap.
 | `K` | hover documentation |
 | `gd`, `F12`, `Ctrl+Click` | go to definition |
 | `Ctrl+O` | jump back |
-| `gr` | references |
-| `ga` | code actions |
+| `gr`, `Shift+F12` | references |
+| `gs`, `Ctrl+Shift+O` | document symbols |
+| `gS`, `Ctrl+T` | workspace symbols |
+| `ga`, `Ctrl+.` | code actions |
 | `]d` / `[d` | next / previous diagnostic |
 | `F2` | rename symbol |
 | `:format` | format document |
@@ -207,6 +212,7 @@ src/
   tree.rs        file tree
   ai.rs          AI providers, SSE streaming, chat storage
   ai_ui.rs       AI panel
+  find.rs        find and replace bar, search matcher
   discord.rs     Discord IPC client
   i18n.rs        localization
   config.rs      settings file

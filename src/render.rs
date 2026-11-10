@@ -1,5 +1,5 @@
 use crate::buffer::{char_width, disp_col};
-use crate::editor::{find_all, Editor, Focus, Layout, Mode, MENU_ROWS, POPUP_ROWS};
+use crate::editor::{Editor, Focus, Layout, Mode, MENU_ROWS, POPUP_ROWS};
 use crate::highlight::{self, Tok};
 use crate::lsp::from_lsp_col;
 use crate::screen::{Screen, Style};
@@ -22,6 +22,7 @@ pub(crate) const ERR: Color = rgb(0xe0, 0x6c, 0x75);
 pub(crate) const BAR: Color = rgb(0x21, 0x25, 0x2b);
 pub(crate) const SEL: Color = rgb(0x3e, 0x44, 0x51);
 const FIND: Color = rgb(0x5a, 0x4a, 0x1e);
+const FIND_CUR: Color = rgb(0x8a, 0x6a, 0x1e);
 const INK: Color = rgb(0x1b, 0x1e, 0x23);
 pub(crate) const LOGO_GREEN: Color = rgb(0x3d, 0xd6, 0x8c);
 pub(crate) const POP: Color = rgb(0x28, 0x2c, 0x34);
@@ -140,6 +141,7 @@ impl Editor {
             self.draw_text(s, &l);
         }
         self.draw_ai(s, &l);
+        self.draw_find(s, &l);
         self.draw_status(s);
         self.draw_cmdline(s);
         self.draw_sig(s, &l);
@@ -156,6 +158,7 @@ impl Editor {
             }
             _ if self.menu.is_some() => None,
             _ if self.focus == Focus::Ai => self.ai_cursor.get(),
+            _ if self.focus == Focus::Find => self.find_cursor.get(),
             _ if self.focus == Focus::Tree => None,
             _ if self.is_splash() => None,
             _ => {
@@ -177,6 +180,7 @@ impl Editor {
 
     pub fn bar_cursor(&self) -> bool {
         matches!(self.mode, Mode::Insert | Mode::Command | Mode::Search)
+            || matches!(self.focus, Focus::Find | Focus::Ai)
     }
 
     fn draw_tabs(&mut self, s: &mut Screen) {
@@ -422,11 +426,12 @@ impl Editor {
                 s.put(l.ed_x + 1, sy, &txt, st);
             }
             let toks = highlight::highlight_line(b.lang, line, &mut in_block);
-            let mut mask = vec![false; line.len()];
+            let mut mask = vec![0u8; line.len()];
             if let Some(p) = pat {
-                for m in find_all(line, p) {
-                    for v in mask.iter_mut().skip(m).take(p.len()) {
-                        *v = true;
+                for (a, e) in p.find_line(line) {
+                    let cur = ly == b.cy && a == b.cx && self.find.is_some();
+                    for v in mask.iter_mut().skip(a).take(e - a) {
+                        *v = if cur { 2 } else { 1 };
                     }
                 }
             }
@@ -444,7 +449,9 @@ impl Editor {
                 let mut st = tok_style(toks[i]);
                 if in_sel(i, ly) {
                     st = st.on(SEL);
-                } else if mask[i] {
+                } else if mask[i] == 2 {
+                    st = st.on(FIND_CUR);
+                } else if mask[i] == 1 {
                     st = st.on(FIND);
                 }
                 if ulm[i] != 0 {
@@ -477,7 +484,10 @@ impl Editor {
         s.fill_row(y, bar);
         let tree_mode = self.focus == Focus::Tree && !matches!(self.mode, Mode::Command | Mode::Search);
         let ai_mode = self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search);
-        let (label, color) = if ai_mode {
+        let find_mode = self.focus == Focus::Find && !matches!(self.mode, Mode::Command | Mode::Search);
+        let (label, color) = if find_mode {
+            (t!("BUL", "FIND"), TYPE)
+        } else if ai_mode {
             ("AI", LOGO_GREEN)
         } else if tree_mode {
             (t!("AĞAÇ", "TREE"), MACRO)
@@ -719,6 +729,14 @@ impl Editor {
             };
             s.fill(x0 + 1, y, w - 2, st);
             put_clip(s, x0 + 2, y, t, st, w as usize - 4);
+        }
+        if m.items.is_empty() {
+            let hint = if m.ws_symbols && m.filter.as_deref().unwrap_or("").is_empty() {
+                t!("Aramak için yazın…", "Type to search…")
+            } else {
+                t!("Sonuç yok", "No results")
+            };
+            put_clip(s, x0 + 2, y0 + 1, hint, Style::fg(DIM).on(POP), w as usize - 4);
         }
         if m.items.len() > rows {
             let c = format!(" {}/{} ", m.sel + 1, m.items.len());

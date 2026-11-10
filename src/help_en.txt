@@ -32,11 +32,22 @@ EDITING
   J               join lines
   >> <<           indent / dedent
   u  Ctrl+r       undo / redo
+  Ctrl+Z          undo (any mode)        Ctrl+Y  Ctrl+Shift+Z  redo
 
 VISUAL MODE
   d x y c         delete / delete / yank / change
   > < ~ J p       indent / case / join / paste over
   o               jump to other end of selection
+
+FIND AND REPLACE
+  Ctrl+F          find bar                Ctrl+H  find and replace
+  Enter  ↓  F3    next match              Shift+Enter  ↑  previous
+  Tab             switch between find and replace fields
+  Alt+C Alt+W Alt+R   match case, whole word, regex
+  Enter (in replace field)    replace and go to next
+  Alt+Enter / Ctrl+Enter      replace all (one Ctrl+Z undoes it)
+  In regex mode $1, $2 ... refer to capture groups
+  Esc             close the bar
 
 SEARCH
   /text           search (all lowercase = case-insensitive)
@@ -51,8 +62,10 @@ LANGUAGE SERVER (LSP) — starts automatically (rust-analyzer, pyright, clangd, 
   K               docs / info for symbol under cursor
   gd  F12         go to definition       Ctrl+o  jump back
   Ctrl+click      go to definition
-  gr              list references
-  ga              code actions / quick fixes (e.g. missing import)
+  gr  Shift+F12   list references
+  gs  Ctrl+Shift+O  document symbols (type to filter)
+  gS  Ctrl+T      search symbols in the workspace
+  ga  Ctrl+.      code actions / quick fixes (e.g. missing import)
   ]d  [d          next / previous error or warning
   F2              rename (:rename newname)
   Right click     context menu
