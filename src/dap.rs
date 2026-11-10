@@ -678,6 +678,7 @@ pub fn auto_plan(
 }
 
 pub enum BuildResult {
+    Line(String),
     Ok(String),
     Err(String),
 }
@@ -688,47 +689,79 @@ pub fn cargo_build(cwd: PathBuf, mut args: Vec<String>, current: Option<PathBuf>
         if !args.iter().any(|a| a.starts_with("--message-format")) {
             args.push("--message-format=json-render-diagnostics".into());
         }
-        let out = Command::new("cargo")
-            .args(&args)
+        let mut c = Command::new("cargo");
+        c.args(&args)
             .current_dir(&cwd)
+            .env("CARGO_TERM_COLOR", "never")
+            .env("CARGO_TERM_PROGRESS_WHEN", "never")
             .stdin(Stdio::null())
-            .output();
-        let res = match out {
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        detach(&mut c);
+        let mut child = match c.spawn() {
+            Ok(ch) => ch,
+            Err(e) => {
+                let _ = tx.send(BuildResult::Err(format!("cargo: {}", e)));
+                return;
+            }
+        };
+        let stderr = child.stderr.take();
+        let etx = tx.clone();
+        let err_thread = thread::spawn(move || {
+            let mut tail: Vec<String> = Vec::new();
+            if let Some(e) = stderr {
+                for line in BufReader::new(e).lines().map_while(Result::ok) {
+                    let t = line.trim();
+                    if t.starts_with("Compiling")
+                        || t.starts_with("Blocking")
+                        || t.starts_with("Finished")
+                        || t.starts_with("Updating")
+                        || t.starts_with("Downloading")
+                        || t.starts_with("Downloaded")
+                    {
+                        let _ = etx.send(BuildResult::Line(t.to_string()));
+                    }
+                    tail.push(line);
+                    if tail.len() > 60 {
+                        tail.remove(0);
+                    }
+                }
+            }
+            tail
+        });
+        let mut exes: Vec<(String, String)> = Vec::new();
+        if let Some(out) = child.stdout.take() {
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if v["reason"] != "compiler-artifact" {
+                    continue;
+                }
+                let is_bin = v["target"]["kind"]
+                    .as_array()
+                    .is_some_and(|k| k.iter().any(|x| x == "bin"));
+                if let (true, Some(exe)) = (is_bin, v["executable"].as_str()) {
+                    exes.push((
+                        exe.to_string(),
+                        v["target"]["src_path"].as_str().unwrap_or("").to_string(),
+                    ));
+                }
+            }
+        }
+        let status = child.wait();
+        let tail = err_thread.join().unwrap_or_default();
+        let res = match status {
             Err(e) => BuildResult::Err(format!("cargo: {}", e)),
-            Ok(o) => {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                let mut exes: Vec<(String, String)> = Vec::new();
-                for line in stdout.lines() {
-                    let Ok(v) = serde_json::from_str::<Value>(line) else {
-                        continue;
-                    };
-                    if v["reason"] != "compiler-artifact" {
-                        continue;
-                    }
-                    let is_bin = v["target"]["kind"]
-                        .as_array()
-                        .is_some_and(|k| k.iter().any(|x| x == "bin"));
-                    if let (true, Some(exe)) = (is_bin, v["executable"].as_str()) {
-                        exes.push((
-                            exe.to_string(),
-                            v["target"]["src_path"].as_str().unwrap_or("").to_string(),
-                        ));
-                    }
-                }
-                if !o.status.success() {
-                    let err = String::from_utf8_lossy(&o.stderr);
-                    let tail: Vec<&str> = err.lines().rev().take(40).collect();
-                    BuildResult::Err(tail.into_iter().rev().collect::<Vec<_>>().join("\n"))
-                } else if exes.is_empty() {
-                    BuildResult::Err("cargo build produced no binary target".into())
-                } else {
-                    let cur = current.map(|c| c.display().to_string());
-                    let pick = exes
-                        .iter()
-                        .find(|(_, src)| Some(src) == cur.as_ref())
-                        .unwrap_or(&exes[0]);
-                    BuildResult::Ok(pick.0.clone())
-                }
+            Ok(st) if !st.success() => BuildResult::Err(tail.join("\n")),
+            Ok(_) if exes.is_empty() => BuildResult::Err("cargo build produced no binary target".into()),
+            Ok(_) => {
+                let cur = current.map(|c| c.display().to_string());
+                let pick = exes
+                    .iter()
+                    .find(|(_, src)| Some(src) == cur.as_ref())
+                    .unwrap_or(&exes[0]);
+                BuildResult::Ok(pick.0.clone())
             }
         };
         let _ = tx.send(res);

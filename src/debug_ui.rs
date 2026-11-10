@@ -1088,6 +1088,7 @@ impl Editor {
             .dbg_hits
             .borrow()
             .iter()
+            .rev()
             .find(|h| h.0 == y && x >= h.1 && x < h.2)
             .map(|h| h.3);
         let Some(hit) = hit else { return false };
@@ -1205,7 +1206,7 @@ impl Editor {
             let lw = text_w(lab) as u16;
             s.put(bx, y0, lab, st);
             if enabled {
-                hits.push((y0, bx, bx + lw, hit));
+                hits.push((y0, bx.saturating_sub(1), bx + lw + 1, hit));
             }
             bx += lw + 2;
         }
