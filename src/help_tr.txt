@@ -90,6 +90,18 @@ DEBUG (DAP)
   :uninstall <ad> indirilen bir aracı kaldır
   .vscode/launch.json varsa oradaki ilk uygun yapılandırma kullanılır
 
+AKIŞ ŞEMASI
+  Ctrl+G          akış şeması panelini aç / kapat (imleci ve debugger'ı takip eder)
+  + / -           yakınlaş / uzaklaş; uzaklaştıkça fonksiyon → dosya → proje
+  Alt+tekerlek    fare konumunda yakınlaş (terminal iletirse Ctrl+tekerlek)
+  sürükle, tekerlek  kaydır (Shift+tekerlek: yatay)   hjkl / oklar  kaydır
+  tık             düğümün satırına git; dosya/proje görünümünde öğeyi aç
+  sağ tık / b     düğüme breakpoint koy / kaldır
+  Tab / n, N      sonraki / önceki düğümü seç          Enter  seçileni aç
+  0 / f           sığdır   c  aktif düğümü ortala   u  bir üst seviye
+  :flow [fn|file|program|fit|off]
+  Desteklenen: Rust, Python, Go, C, C++, JavaScript, TypeScript
+
 AI ASİSTANI
   Ctrl+L          AI panelini aç / kapat (görsel seçimdeyken seçimi bağlam olarak ekler)
   Enter           gönder                  Ctrl+J / Alt+Enter  yeni satır

@@ -90,6 +90,18 @@ DEBUGGING (DAP)
   :uninstall <name>  remove a downloaded tool
   If .vscode/launch.json exists, its first supported configuration is used
 
+FLOWCHART
+  Ctrl+G          toggle the flowchart panel (follows the cursor and the debugger)
+  + / -           zoom in / out; zooming out goes function → file → project
+  Alt+wheel       zoom at the mouse (Ctrl+wheel where the terminal passes it)
+  drag, wheel     pan (Shift+wheel: horizontal)      hjkl / arrows  pan
+  click           go to the node's line; in file/project view open the item
+  right click / b toggle a breakpoint on the node
+  Tab / n, N      select next / previous node        Enter  open selected
+  0 / f           fit      c  center the active node      u  level up
+  :flow [fn|file|program|fit|off]
+  Supported: Rust, Python, Go, C, C++, JavaScript, TypeScript
+
 AI ASSISTANT
   Ctrl+L          toggle the AI panel (in visual mode the selection is attached)
   Enter           send                    Ctrl+J / Alt+Enter  newline

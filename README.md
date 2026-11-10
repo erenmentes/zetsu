@@ -14,6 +14,7 @@
 - **Language Server Protocol** — completion (including auto-imports and snippet expansion), diagnostics, hover, go to definition, references, code actions with resolve support, signature help, rename and document formatting. Servers are discovered on `PATH` and started on demand.
 - **Mouse** — click to place the cursor, drag to select, double/triple click for word/line selection, scroll, tab switching, context menu, Ctrl+click to jump to a definition, resizable file tree.
 - **Debugger (DAP)** — breakpoints, stepping, variables tree, call stack, watches and a debug console. Works with CodeLLDB, lldb-dap and gdb for Rust/C/C++, debugpy for Python and Delve for Go. Missing adapters are downloaded on first use, Rust projects are built automatically and `.vscode/launch.json` is supported.
+- **Live flowchart** — control-flow diagram of the function under the cursor, generated with tree-sitter. Follows the debugger as you step, marks breakpoints, and zooms semantically from a single function out to the whole file and project, with a braille minimap at low zoom levels.
 - **Find and replace** — inline find bar with live highlighting, match counter, case/whole-word/regex options, capture-group replacement and single-step undo for replace-all.
 - **Navigation** — document symbols, workspace symbol search, references, jump list.
 - **Workspace** — file tree, tabs, folder picker, recent workspaces, shell command integration (`:!cargo build`).
@@ -58,7 +59,7 @@ Binaries for every release are available on the [Releases](https://github.com/er
 
 ### From source
 
-Requires a stable Rust toolchain ([rustup.rs](https://rustup.rs)). On macOS the Xcode Command Line Tools are also required (`xcode-select --install`).
+Requires a stable Rust toolchain ([rustup.rs](https://rustup.rs)) and a C compiler for the tree-sitter grammars: the Visual Studio Build Tools with the C++ workload on Windows (already needed by the MSVC Rust toolchain), `gcc` or `clang` on Linux (`build-essential` on Debian/Ubuntu), and the Xcode Command Line Tools on macOS (`xcode-select --install`).
 
 ```sh
 git clone https://github.com/erenmentes/zetsu
@@ -120,6 +121,17 @@ Press `:help` inside the editor for the full keymap.
 | `F6` | pause |
 | `K` | evaluate the expression under the cursor while paused |
 
+### Flowchart
+
+| Key | Action |
+|---|---|
+| `Ctrl+G` | toggle the flowchart panel |
+| `+` / `-`, `Alt+wheel` | zoom in / out (function → file → project) |
+| drag, wheel, `hjkl` | pan |
+| click / right-click | go to line / toggle breakpoint |
+| `Tab` / `Enter` | select next node / open it |
+| `0` | fit to panel |
+
 ### AI panel
 
 | Key | Action |
@@ -159,6 +171,14 @@ For Rust, zetsu runs `cargo build` and debugs the produced binary. For C/C++, pa
 If the workspace contains `.vscode/launch.json`, the first `launch` configuration with a supported type (`lldb`, `lldb-dap`, `cppdbg`, `gdb`, `debugpy`, `python`, `go`) is used. Comments, trailing commas and the common `${workspaceFolder}`/`${file}` variables are supported, as is CodeLLDB's `cargo` field.
 
 CodeLLDB gives the best Rust experience: it pretty-prints `Vec`, `String`, `HashMap` and other standard types. In the debug console expressions are evaluated directly; prefix a line with `` ` `` to run a raw LLDB command (`` `frame info ``).
+
+## Flowchart
+
+`Ctrl+G` opens a panel that draws the control flow of the function under the cursor: statements, `if`/`else` chains, loops with their back edges, `match`/`switch` arms, `try`/`except`, and early `return`/`break`/`throw` exits. Consecutive simple statements are folded into one node. Functions are parsed with [tree-sitter](https://tree-sitter.github.io) for Rust, Python, Go, C, C++, JavaScript and TypeScript, and the diagram is rebuilt as you type.
+
+The node containing the cursor is highlighted. While the debugger is paused the panel follows the execution line instead: it switches to the function being executed, highlights the current node and scrolls it into view. Breakpoints are shown on their nodes; right-click a node to toggle one, click it to jump to its line.
+
+Zoom is semantic. At 100% nodes are drawn with box characters; zooming out switches to a braille rendering at 50%, 25% and 12.5% that shows the shape of large functions. Zooming out further shows every function in the file with its size and branch count, then every source file in the project. Zooming in, or clicking an item, goes back down. Use `+`/`-`, `Alt`+wheel (`Ctrl`+wheel where the terminal forwards it) or the buttons in the panel header; the breadcrumb in the header is clickable.
 
 ## AI assistant
 
@@ -255,6 +275,8 @@ src/
   ai.rs          AI providers, SSE streaming, chat storage
   ai_ui.rs       AI panel
   find.rs        find and replace bar, search matcher
+  flow.rs        tree-sitter control-flow extraction, flowchart layout and rasterizer
+  flow_ui.rs     flowchart panel: semantic zoom, braille rendering, debugger sync
   dap.rs         Debug Adapter Protocol client, adapter discovery, launch configuration
   debug_ui.rs    debugger session, breakpoints and the debug panel
   tools.rs       debug adapter download and installation

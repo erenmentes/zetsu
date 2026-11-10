@@ -6,6 +6,7 @@ mod config;
 mod dap;
 mod discord;
 mod editor;
+mod flow;
 mod highlight;
 mod lsp;
 mod render;

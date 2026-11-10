@@ -131,6 +131,7 @@ fn tok_style(t: Tok) -> Style {
 
 impl Editor {
     pub fn draw(&mut self, s: &mut Screen) {
+        self.flow_sync();
         s.clear();
         let l = self.layout();
         self.draw_tabs(s);
@@ -142,6 +143,7 @@ impl Editor {
         } else {
             self.draw_text(s, &l);
         }
+        self.draw_flow(s, &l);
         self.draw_ai(s, &l);
         self.draw_debug(s, &l);
         self.draw_find(s, &l);

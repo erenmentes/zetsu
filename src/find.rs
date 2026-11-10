@@ -486,7 +486,7 @@ impl Editor {
         hits.clear();
         self.find_cursor.set(None);
         let Some(fb) = &self.find else { return };
-        let right = l.ai_x;
+        let right = l.ed_r;
         let w = 66.min(l.ed_w.saturating_sub(2));
         if w < 30 {
             return;

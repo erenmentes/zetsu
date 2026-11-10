@@ -17,6 +17,8 @@ mod ai_ui;
 mod debug_ui;
 #[path = "find.rs"]
 mod find;
+#[path = "flow_ui.rs"]
+mod flow_ui;
 pub use find::{FindBar, Matcher};
 #[path = "ide.rs"]
 mod ide;
@@ -46,6 +48,7 @@ pub enum Focus {
     Ai,
     Find,
     Debug,
+    Flow,
 }
 
 #[derive(Clone)]
@@ -68,6 +71,8 @@ enum Drag {
     Sep,
     AiSep,
     DbgSep,
+    FlowSep,
+    FlowPan,
 }
 
 pub struct Layout {
@@ -81,6 +86,9 @@ pub struct Layout {
     pub ed_w: u16,
     pub ai_x: u16,
     pub ai_w: u16,
+    pub flow_x: u16,
+    pub flow_w: u16,
+    pub ed_r: u16,
     pub dbg_y: u16,
     pub dbg_h: u16,
     pub dbg_cols: (u16, u16, u16),
@@ -143,6 +151,7 @@ pub struct Editor {
     insert_cp_pending: bool,
     ws_sym_id: Option<i64>,
     pub dbg: debug_ui::Debugger,
+    pub flow: flow_ui::FlowView,
     pub dbg_hits: RefCell<Vec<(u16, u16, u16, debug_ui::DbgHit)>>,
     pub dbg_cursor: Cell<Option<(u16, u16)>>,
     pub splash_hits: RefCell<Vec<(u16, usize)>>,
@@ -288,6 +297,7 @@ impl Editor {
             insert_cp_pending: false,
             ws_sym_id: None,
             dbg: debug_ui::Debugger::new(),
+            flow: flow_ui::FlowView::new(),
             dbg_hits: RefCell::new(Vec::new()),
             dbg_cursor: Cell::new(None),
         };
@@ -352,7 +362,15 @@ impl Editor {
         } else {
             self.w
         };
-        let text_w = ai_x.saturating_sub(text_x).max(1);
+        let (flow_x, flow_w) = if self.flow.visible && ai_x > ed_x + 30 + 25 {
+            let room = ai_x.saturating_sub(ed_x + 30 + 1);
+            let fw = self.flow.width.clamp(24.min(room), room);
+            (ai_x - fw - 1, fw)
+        } else {
+            (ai_x, 0)
+        };
+        let ed_r = flow_x;
+        let text_w = ed_r.saturating_sub(text_x).max(1);
         let total_h = self.h.saturating_sub(3).max(1);
         let dbg_h = if self.dbg.visible && total_h >= 14 {
             self.dbg.height.clamp(6, total_h - 6)
@@ -364,7 +382,7 @@ impl Editor {
         let vw = self.w * 40 / 100;
         let sw = self.w * 25 / 100;
         let dbg_cols = (vw, sw, self.w.saturating_sub(vw + sw));
-        let ed_w = ai_x.saturating_sub(ed_x);
+        let ed_w = ed_r.saturating_sub(ed_x);
         Layout {
             tree_w,
             ed_x,
@@ -376,6 +394,9 @@ impl Editor {
             ed_w,
             ai_x,
             ai_w,
+            flow_x,
+            flow_w,
+            ed_r,
             dbg_y,
             dbg_h,
             dbg_cols,
@@ -573,6 +594,9 @@ impl Editor {
         if is_ctrl(&k) && k.code == KeyCode::Char('l') {
             return self.ai_toggle();
         }
+        if is_ctrl(&k) && k.code == KeyCode::Char('g') {
+            return self.flow_toggle();
+        }
         if let KeyCode::F(n) = k.code {
             let shift = k.modifiers.contains(KeyModifiers::SHIFT);
             let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -617,6 +641,22 @@ impl Editor {
                 );
             if !global {
                 return self.dbg_key(k);
+            }
+        }
+        if self.focus == Focus::Flow && !matches!(self.mode, Mode::Command | Mode::Search) {
+            let global = is_ctrl(&k)
+                && matches!(
+                    k.code,
+                    KeyCode::Char('w')
+                        | KeyCode::Char('b')
+                        | KeyCode::Char('k')
+                        | KeyCode::Char('s')
+                        | KeyCode::Char('f')
+                        | KeyCode::Char('z')
+                        | KeyCode::Char('y')
+                );
+            if !global {
+                return self.flow_key(k);
             }
         }
         if self.focus == Focus::Find && !matches!(self.mode, Mode::Command | Mode::Search) {
@@ -667,8 +707,9 @@ impl Editor {
                     self.back_to_normal();
                     self.focus = match self.focus {
                         Focus::Editor if self.tree.visible => Focus::Tree,
-                        Focus::Editor | Focus::Tree if self.ai.visible => Focus::Ai,
-                        Focus::Editor | Focus::Tree | Focus::Ai if self.dbg.visible => Focus::Debug,
+                        Focus::Editor | Focus::Tree if self.flow.visible => Focus::Flow,
+                        Focus::Editor | Focus::Tree | Focus::Flow if self.ai.visible => Focus::Ai,
+                        Focus::Editor | Focus::Tree | Focus::Flow | Focus::Ai if self.dbg.visible => Focus::Debug,
                         _ => Focus::Editor,
                     };
                     return;
@@ -2124,6 +2165,7 @@ impl Editor {
             "lsp" | "LspInfo" => self.lsp_command(arg),
             "discord" => self.discord_command(arg),
             "debug" | "dbg" => self.debug_command(arg),
+            "flow" => self.flow_command(arg),
             "install" => self.install_command(arg),
             "uninstall" => self.uninstall_command(arg),
             "break" | "breakpoint" => {
@@ -2678,6 +2720,9 @@ impl Editor {
             return;
         }
         let l = self.layout();
+        if self.flow_mouse(&m, &l) {
+            return;
+        }
         let (x, y) = (m.column, m.row);
         let in_text_rows = y >= l.top && y < l.top + l.text_h;
         let over_tree = self.tree.visible && x < l.tree_w && in_text_rows;
@@ -2791,7 +2836,7 @@ impl Editor {
                 if self.find.is_some() && self.find_click(x, y) {
                     return;
                 }
-                if x >= l.ed_x && x < l.ai_x && self.is_splash() {
+                if x >= l.ed_x && x < l.ed_r && self.is_splash() {
                     let hit = self.splash_hits.borrow().iter().find(|(hy, _)| *hy == y).map(|h| h.1);
                     match hit {
                         Some(SPLASH_OPEN) => {
@@ -2808,7 +2853,7 @@ impl Editor {
                     }
                     return;
                 }
-                if x >= l.ed_x && x < l.ai_x {
+                if x >= l.ed_x && x < l.ed_r {
                     self.focus = Focus::Editor;
                     if matches!(self.mode, Mode::Visual | Mode::VisualLine) {
                         self.mode = Mode::Normal;
@@ -2903,7 +2948,7 @@ impl Editor {
                     b.cy = p.1;
                     b.sync_want();
                 }
-                Drag::None | Drag::AiSep | Drag::DbgSep => {}
+                Drag::None | Drag::AiSep | Drag::DbgSep | Drag::FlowSep | Drag::FlowPan => {}
             },
             MouseEventKind::Up(_) => self.drag = Drag::None,
             MouseEventKind::Down(MouseButton::Middle) => {
