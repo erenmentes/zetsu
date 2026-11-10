@@ -91,7 +91,11 @@ pub fn candidates(lang: &str) -> &'static [&'static [&'static str]] {
     match lang {
         "Rust" => &[&["rust-analyzer"]],
         "C/C++" => &[&["clangd"]],
-        "Python" => &[&["pyright-langserver", "--stdio"], &["basedpyright-langserver", "--stdio"], &["pylsp"]],
+        "Python" => &[
+            &["pyright-langserver", "--stdio"],
+            &["basedpyright-langserver", "--stdio"],
+            &["pylsp"],
+        ],
         "JS/TS" => &[&["typescript-language-server", "--stdio"]],
         "Go" => &[&["gopls"]],
         "Lua" => &[&["lua-language-server"]],
@@ -128,7 +132,10 @@ pub fn find_root(lang: &str, file: &Path, fallback: &Path) -> PathBuf {
 }
 
 pub fn language_id(lang: &str, path: &Path) -> &'static str {
-    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     match lang {
         "Rust" => "rust",
         "C/C++" => {
@@ -156,7 +163,10 @@ pub fn which(name: &str) -> Option<PathBuf> {
     let path = env::var_os("PATH")?;
     let exts: Vec<String> = if cfg!(windows) {
         let pe = env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-        pe.split(';').filter(|s| !s.is_empty()).map(|s| s.to_lowercase()).collect()
+        pe.split(';')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_lowercase())
+            .collect()
     } else {
         vec![String::new()]
     };
@@ -200,9 +210,23 @@ pub struct Diag {
 
 pub enum LspEvent {
     Ready(String),
-    Response { lang: &'static str, id: i64, kind: Pending, result: Value, error: Option<String> },
-    Notification { lang: &'static str, method: String, params: Value },
-    ApplyEdit { lang: &'static str, id: Value, params: Value },
+    Response {
+        lang: &'static str,
+        id: i64,
+        kind: Pending,
+        result: Value,
+        error: Option<String>,
+    },
+    Notification {
+        lang: &'static str,
+        method: String,
+        params: Value,
+    },
+    ApplyEdit {
+        lang: &'static str,
+        id: Value,
+        params: Value,
+    },
     Exited(&'static str, String),
 }
 
@@ -243,7 +267,12 @@ impl Server {
         let body = v.to_string();
         log(">>", &body);
         let msg = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
-        if self.stdin.write_all(msg.as_bytes()).and_then(|_| self.stdin.flush()).is_err() {
+        if self
+            .stdin
+            .write_all(msg.as_bytes())
+            .and_then(|_| self.stdin.flush())
+            .is_err()
+        {
             self.dead = true;
         }
     }
@@ -346,15 +375,21 @@ fn client_capabilities() -> Value {
 impl Lsp {
     pub fn new() -> Self {
         let (tx, rx) = channel();
-        Lsp { servers: HashMap::new(), failed: HashSet::new(), diags: HashMap::new(), tx, rx }
+        Lsp {
+            servers: HashMap::new(),
+            failed: HashSet::new(),
+            diags: HashMap::new(),
+            tx,
+            rx,
+        }
     }
 
     pub fn alive(&self, lang: &str) -> bool {
-        self.servers.get(lang).map_or(false, |s| !s.dead)
+        self.servers.get(lang).is_some_and(|s| !s.dead)
     }
 
     pub fn ready(&self, lang: &str) -> bool {
-        self.servers.get(lang).map_or(false, |s| s.ready && !s.dead)
+        self.servers.get(lang).is_some_and(|s| s.ready && !s.dead)
     }
 
     pub fn enc(&self, lang: &str) -> Enc {
@@ -362,7 +397,7 @@ impl Lsp {
     }
 
     pub fn cap(&self, lang: &str, name: &str) -> bool {
-        self.servers.get(lang).map_or(false, |s| {
+        self.servers.get(lang).is_some_and(|s| {
             let c = &s.caps[name];
             !c.is_null() && c != &Value::Bool(false)
         })
@@ -390,10 +425,17 @@ impl Lsp {
         let Some((exe, spec)) = found else {
             self.failed.insert(lang);
             let names: Vec<&str> = cands.iter().map(|c| c[0]).collect();
-            return Err(tf!("LSP bulunamadı: {} (PATH'e ekleyin)", "Language server not found: {} (add it to PATH)", names.join(" / ")));
+            return Err(tf!(
+                "LSP bulunamadı: {} (PATH'e ekleyin)",
+                "Language server not found: {} (add it to PATH)",
+                names.join(" / ")
+            ));
         };
         let root = find_root(lang, file, cwd);
-        let ext = exe.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let ext = exe
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
         let mut cmd = if ext == "cmd" || ext == "bat" {
             let mut c = Command::new("cmd");
             c.arg("/C").arg(&exe);
@@ -432,7 +474,10 @@ impl Lsp {
             progress: HashMap::new(),
             dead: false,
         };
-        let root_name = root.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let root_name = root
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let params = json!({
             "processId": std::process::id(),
             "clientInfo": { "name": "zetsu", "version": env!("CARGO_PKG_VERSION") },
@@ -531,7 +576,11 @@ impl Lsp {
                 let id = v["id"].clone();
                 match m.as_str() {
                     "workspace/applyEdit" => {
-                        out.push(LspEvent::ApplyEdit { lang, id, params: v["params"].clone() });
+                        out.push(LspEvent::ApplyEdit {
+                            lang,
+                            id,
+                            params: v["params"].clone(),
+                        });
                     }
                     "workspace/configuration" => {
                         let n = v["params"]["items"].as_array().map_or(0, |a| a.len());
@@ -540,7 +589,10 @@ impl Lsp {
                     }
                     "workspace/workspaceFolders" => {
                         let root = s.root.clone();
-                        let name = root.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+                        let name = root
+                            .file_name()
+                            .map(|x| x.to_string_lossy().into_owned())
+                            .unwrap_or_default();
                         s.write(&json!({ "jsonrpc": "2.0", "id": id, "result": [{ "uri": path_to_uri(&root), "name": name }] }));
                     }
                     _ => s.write(&json!({ "jsonrpc": "2.0", "id": id, "result": Value::Null })),
@@ -572,7 +624,11 @@ impl Lsp {
                         }
                     }
                 } else {
-                    out.push(LspEvent::Notification { lang, method: m, params: v["params"].clone() });
+                    out.push(LspEvent::Notification {
+                        lang,
+                        method: m,
+                        params: v["params"].clone(),
+                    });
                 }
             }
             (None, true) => {
@@ -594,7 +650,13 @@ impl Lsp {
                     out.push(LspEvent::Ready(s.name.clone()));
                     return;
                 }
-                out.push(LspEvent::Response { lang, id, kind, result: v["result"].clone(), error });
+                out.push(LspEvent::Response {
+                    lang,
+                    id,
+                    kind,
+                    result: v["result"].clone(),
+                    error,
+                });
             }
             _ => {}
         }
@@ -611,7 +673,7 @@ pub fn expand_snippet(s: &str) -> (String, Option<usize>) {
 
 fn note_stop(best: &mut Option<(u32, usize)>, n: u32, pos: usize) {
     let key = if n == 0 { u32::MAX } else { n };
-    if best.map_or(true, |(k, _)| key < k) {
+    if best.is_none_or(|(k, _)| key < k) {
         *best = Some((key, pos));
     }
 }

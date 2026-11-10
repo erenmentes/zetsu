@@ -114,7 +114,10 @@ When you provide code that should replace the user's selection or be inserted in
 put it in a single fenced code block with the language tag and no extra commentary inside the block.";
 
 pub fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn chats_dir() -> Option<PathBuf> {
@@ -170,19 +173,28 @@ pub fn code_blocks(text: &str) -> Vec<(String, String)> {
 
 fn user_content(m: &Msg) -> String {
     match &m.ctx {
-        Some(c) => format!("Context ({}):\n```{}\n{}\n```\n\n{}", c.label, c.lang, c.content, m.text),
+        Some(c) => format!(
+            "Context ({}):\n```{}\n{}\n```\n\n{}",
+            c.label, c.lang, c.content, m.text
+        ),
         None => m.text.clone(),
     }
 }
 
-fn stream_lines(resp: ureq::Response, cancel: &AtomicBool, mut on_data: impl FnMut(&str) -> Result<bool, String>) -> Result<(), String> {
+fn stream_lines(
+    resp: ureq::Response,
+    cancel: &AtomicBool,
+    mut on_data: impl FnMut(&str) -> Result<bool, String>,
+) -> Result<(), String> {
     let reader = BufReader::new(resp.into_reader());
     for line in reader.lines() {
         if cancel.load(Ordering::Relaxed) {
             return Ok(());
         }
         let line = line.map_err(|e| e.to_string())?;
-        let Some(data) = line.strip_prefix("data:") else { continue };
+        let Some(data) = line.strip_prefix("data:") else {
+            continue;
+        };
         let data = data.trim();
         if data.is_empty() {
             continue;
@@ -197,7 +209,22 @@ fn stream_lines(resp: ureq::Response, cancel: &AtomicBool, mut on_data: impl FnM
     Ok(())
 }
 
-fn run_chat(provider: Provider, base: String, key: String, model: String, history: Vec<Msg>, id: u64, tx: Sender<AiEvent>, cancel: Arc<AtomicBool>) {
+struct ChatReq {
+    provider: Provider,
+    base: String,
+    key: String,
+    model: String,
+    history: Vec<Msg>,
+}
+
+fn run_chat(req: ChatReq, id: u64, tx: Sender<AiEvent>, cancel: Arc<AtomicBool>) {
+    let ChatReq {
+        provider,
+        base,
+        key,
+        model,
+        history,
+    } = req;
     let base = base.trim_end_matches('/').to_string();
     let send = |s: String| {
         let _ = tx.send(AiEvent::Delta(id, s));
@@ -325,9 +352,15 @@ fn run_models(provider: Provider, base: String, key: String, tx: Sender<AiEvent>
                 .get(&format!("{}/models?limit=1000", base))
                 .set("x-api-key", &key)
                 .set("anthropic-version", "2023-06-01"),
-            Provider::Gemini => agent().get(&format!("{}/models?pageSize=1000", base)).set("x-goog-api-key", &key),
+            Provider::Gemini => agent()
+                .get(&format!("{}/models?pageSize=1000", base))
+                .set("x-goog-api-key", &key),
         };
-        let body = req.call().map_err(http_error)?.into_string().map_err(|e| e.to_string())?;
+        let body = req
+            .call()
+            .map_err(http_error)?
+            .into_string()
+            .map_err(|e| e.to_string())?;
         let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
         let mut names: Vec<String> = match provider {
             Provider::Gemini => v["models"]
@@ -338,7 +371,7 @@ fn run_models(provider: Provider, base: String, key: String, tx: Sender<AiEvent>
                 .filter(|m| {
                     m["supportedGenerationMethods"]
                         .as_array()
-                        .map_or(true, |a| a.iter().any(|x| x == "generateContent"))
+                        .is_none_or(|a| a.iter().any(|x| x == "generateContent"))
                 })
                 .filter_map(|m| m["name"].as_str().map(|n| n.trim_start_matches("models/").to_string()))
                 .collect(),
@@ -363,7 +396,10 @@ fn run_models(provider: Provider, base: String, key: String, tx: Sender<AiEvent>
 impl Ai {
     pub fn new() -> Self {
         let cfg = crate::config::load();
-        let provider = cfg.get("ai_provider").and_then(|p| Provider::parse(p)).unwrap_or(Provider::OpenAI);
+        let provider = cfg
+            .get("ai_provider")
+            .and_then(|p| Provider::parse(p))
+            .unwrap_or(Provider::OpenAI);
         let (tx, rx) = channel();
         let mut ai = Ai {
             visible: false,
@@ -406,7 +442,10 @@ impl Ai {
 
     pub fn key(&self) -> String {
         let cfg = crate::config::load();
-        if let Some(k) = cfg.get(&format!("ai_key_{}", self.provider.id())).filter(|k| !k.is_empty()) {
+        if let Some(k) = cfg
+            .get(&format!("ai_key_{}", self.provider.id()))
+            .filter(|k| !k.is_empty())
+        {
             return k.clone();
         }
         self.provider
@@ -453,8 +492,15 @@ impl Ai {
         self.next_id += 1;
         let cancel = Arc::new(AtomicBool::new(false));
         self.streaming = Some((id, cancel.clone()));
-        let (p, base, key, model, tx) = (self.provider, self.base_url.clone(), self.key(), self.model.clone(), self.tx.clone());
-        thread::spawn(move || run_chat(p, base, key, model, history, id, tx, cancel));
+        let req = ChatReq {
+            provider: self.provider,
+            base: self.base_url.clone(),
+            key: self.key(),
+            model: self.model.clone(),
+            history,
+        };
+        let tx = self.tx.clone();
+        thread::spawn(move || run_chat(req, id, tx, cancel));
         id
     }
 
@@ -543,7 +589,7 @@ impl Ai {
             .filter_map(|e| e.ok())
             .filter_map(|e| {
                 let p = e.path();
-                if p.extension().map_or(true, |x| x != "json") {
+                if p.extension().is_none_or(|x| x != "json") {
                     return None;
                 }
                 let doc: Value = serde_json::from_str(&fs::read_to_string(&p).ok()?).ok()?;
@@ -554,14 +600,18 @@ impl Ai {
                 })
             })
             .collect();
-        v.sort_by(|a, b| b.updated.cmp(&a.updated));
+        v.sort_by_key(|c| std::cmp::Reverse(c.updated));
         v
     }
 
     pub fn load_chat(&mut self, id: &str) -> bool {
         let Some(dir) = chats_dir() else { return false };
-        let Ok(text) = fs::read_to_string(dir.join(format!("{}.json", id))) else { return false };
-        let Ok(doc) = serde_json::from_str::<Value>(&text) else { return false };
+        let Ok(text) = fs::read_to_string(dir.join(format!("{}.json", id))) else {
+            return false;
+        };
+        let Ok(doc) = serde_json::from_str::<Value>(&text) else {
+            return false;
+        };
         self.cancel();
         self.msgs = doc["messages"]
             .as_array()
@@ -569,16 +619,21 @@ impl Ai {
             .unwrap_or_default()
             .iter()
             .map(|m| Msg {
-                role: if m["role"] == "user" { Role::User } else { Role::Assistant },
+                role: if m["role"] == "user" {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 text: m["text"].as_str().unwrap_or("").to_string(),
                 ctx: m["ctx"].as_object().map(|c| Ctx {
                     path: c.get("path").and_then(|p| p.as_str()).map(PathBuf::from),
                     label: c.get("label").and_then(|x| x.as_str()).unwrap_or("").to_string(),
                     lang: c.get("lang").and_then(|x| x.as_str()).unwrap_or("").to_string(),
                     content: c.get("content").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                    sel: c.get("sel").and_then(|s| s.as_array()).and_then(|a| {
-                        Some((a.first()?.as_u64()? as usize, a.get(1)?.as_u64()? as usize))
-                    }),
+                    sel: c
+                        .get("sel")
+                        .and_then(|s| s.as_array())
+                        .and_then(|a| Some((a.first()?.as_u64()? as usize, a.get(1)?.as_u64()? as usize))),
                 }),
                 error: false,
             })

@@ -3,20 +3,18 @@ use crate::discord::Presence;
 use crate::highlight;
 use crate::lsp::{path_key, Lsp};
 use crate::tree::Tree;
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::cell::{Cell, RefCell};
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
 use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-#[path = "ide.rs"]
-mod ide;
 #[path = "ai_ui.rs"]
 mod ai_ui;
+#[path = "ide.rs"]
+mod ide;
 pub use ide::{Menu, Popup, MENU_ROWS, POPUP_ROWS};
 
 pub const NONAME: &str = "[isimsiz]";
@@ -165,7 +163,13 @@ pub fn find_all(line: &[char], pat: &[char]) -> Vec<usize> {
         return Vec::new();
     }
     let ic = !pat.iter().any(|c| c.is_uppercase());
-    let eq = |a: char, b: char| if ic { a.to_lowercase().eq(b.to_lowercase()) } else { a == b };
+    let eq = |a: char, b: char| {
+        if ic {
+            a.to_lowercase().eq(b.to_lowercase())
+        } else {
+            a == b
+        }
+    };
     (0..=line.len() - pat.len())
         .filter(|&i| pat.iter().enumerate().all(|(j, &p)| eq(line[i + j], p)))
         .collect()
@@ -265,7 +269,7 @@ impl Editor {
                     .ok()
                     .or_else(|| cfg.get("discord_client_id").cloned())
                     .unwrap_or_default();
-                let on = cfg.get("discord").map_or(true, |v| v != "off");
+                let on = cfg.get("discord").is_none_or(|v| v != "off");
                 Presence::start(id, on)
             },
             recent,
@@ -286,7 +290,12 @@ impl Editor {
         self.recent.retain(|r| path_key(r) != key);
         self.recent.insert(0, p.to_path_buf());
         self.recent.truncate(9);
-        let joined = self.recent.iter().map(|r| r.display().to_string()).collect::<Vec<_>>().join("|");
+        let joined = self
+            .recent
+            .iter()
+            .map(|r| r.display().to_string())
+            .collect::<Vec<_>>()
+            .join("|");
         let _ = crate::config::set("recent", &joined);
     }
 
@@ -307,7 +316,11 @@ impl Editor {
     }
 
     pub fn layout(&self) -> Layout {
-        let tree_w = if self.tree.visible { self.tree.width.min(self.w.saturating_sub(20)) } else { 0 };
+        let tree_w = if self.tree.visible {
+            self.tree.width.min(self.w.saturating_sub(20))
+        } else {
+            0
+        };
         let ed_x = if self.tree.visible { tree_w + 1 } else { 0 };
         let b = self.buf();
         let gutter = if self.numbers {
@@ -322,11 +335,26 @@ impl Editor {
         } else {
             0
         };
-        let ai_x = if ai_w > 0 { self.w.saturating_sub(ai_w + 1) } else { self.w };
+        let ai_x = if ai_w > 0 {
+            self.w.saturating_sub(ai_w + 1)
+        } else {
+            self.w
+        };
         let text_w = ai_x.saturating_sub(text_x).max(1);
         let text_h = self.h.saturating_sub(3).max(1);
         let ed_w = ai_x.saturating_sub(ed_x);
-        Layout { tree_w, ed_x, gutter, text_x, text_w, top: 1, text_h, ed_w, ai_x, ai_w }
+        Layout {
+            tree_w,
+            ed_x,
+            gutter,
+            text_x,
+            text_w,
+            top: 1,
+            text_h,
+            ed_w,
+            ai_x,
+            ai_w,
+        }
     }
 
     pub fn is_splash(&self) -> bool {
@@ -485,7 +513,7 @@ impl Editor {
         let rows = self.tree_rows();
         let t = &mut self.tree;
         t.sel = t.sel.min(t.nodes.len().saturating_sub(1));
-        t.scroll = t.scroll.min(t.nodes.len().saturating_sub(rows.max(1)).max(0));
+        t.scroll = t.scroll.min(t.nodes.len().saturating_sub(rows.max(1)));
     }
 
     fn scroll_to_cursor(&mut self, so: usize) {
@@ -521,7 +549,11 @@ impl Editor {
             return self.ai_toggle();
         }
         if self.focus == Focus::Ai && !matches!(self.mode, Mode::Command | Mode::Search) {
-            let global = is_ctrl(&k) && matches!(k.code, KeyCode::Char('w') | KeyCode::Char('b') | KeyCode::Char('k') | KeyCode::Char('s'));
+            let global = is_ctrl(&k)
+                && matches!(
+                    k.code,
+                    KeyCode::Char('w') | KeyCode::Char('b') | KeyCode::Char('k') | KeyCode::Char('s')
+                );
             if !global {
                 return self.ai_key(k);
             }
@@ -542,7 +574,7 @@ impl Editor {
                     return;
                 }
                 KeyCode::Char('w') => {
-                    self.to_normal();
+                    self.back_to_normal();
                     self.focus = match self.focus {
                         Focus::Editor if self.tree.visible => Focus::Tree,
                         Focus::Editor | Focus::Tree if self.ai.visible => Focus::Ai,
@@ -550,19 +582,21 @@ impl Editor {
                     };
                     return;
                 }
-                KeyCode::Char('c') | KeyCode::Char('x')
-                    if matches!(self.mode, Mode::Visual | Mode::VisualLine) =>
-                {
+                KeyCode::Char('c') | KeyCode::Char('x') if matches!(self.mode, Mode::Visual | Mode::VisualLine) => {
                     let cut = k.code == KeyCode::Char('x');
                     self.visual_op(if cut { 'd' } else { 'y' });
-                    self.info(if cut { t!("Kesildi (panoda)", "Cut (in clipboard)") } else { t!("Panoya kopyalandı", "Copied to clipboard") });
+                    self.info(if cut {
+                        t!("Kesildi (panoda)", "Cut (in clipboard)")
+                    } else {
+                        t!("Panoya kopyalandı", "Copied to clipboard")
+                    });
                     return;
                 }
                 KeyCode::Char('c') => {
                     if self.mode == Mode::Normal && self.focus == Focus::Editor {
                         self.info(t!("Çıkmak için :q yazın", "Type :q to quit"));
                     } else {
-                        self.to_normal();
+                        self.back_to_normal();
                     }
                     return;
                 }
@@ -578,7 +612,7 @@ impl Editor {
         }
     }
 
-    fn to_normal(&mut self) {
+    fn back_to_normal(&mut self) {
         match self.mode {
             Mode::Insert => self.leave_insert(),
             _ => self.mode = Mode::Normal,
@@ -602,7 +636,13 @@ impl Editor {
     fn count_digit(&mut self, c: char) -> bool {
         if let Some(d) = c.to_digit(10) {
             if d != 0 || self.count.is_some() {
-                self.count = Some(self.count.unwrap_or(0).saturating_mul(10).saturating_add(d as usize).min(1_000_000));
+                self.count = Some(
+                    self.count
+                        .unwrap_or(0)
+                        .saturating_mul(10)
+                        .saturating_add(d as usize)
+                        .min(1_000_000),
+                );
                 return true;
             }
         }
@@ -624,7 +664,7 @@ impl Editor {
     }
 
     fn toggle_tree(&mut self) {
-        self.to_normal();
+        self.back_to_normal();
         self.tree.visible = !self.tree.visible;
         self.focus = if self.tree.visible { Focus::Tree } else { Focus::Editor };
         if self.tree.visible {
@@ -704,9 +744,13 @@ impl Editor {
             self.focus = Focus::Tree;
             return;
         }
-        self.to_normal();
+        self.back_to_normal();
         let key = path_key(&p);
-        if let Some(i) = self.bufs.iter().position(|b| b.path.as_ref().map(|x| path_key(x)).as_ref() == Some(&key)) {
+        if let Some(i) = self
+            .bufs
+            .iter()
+            .position(|b| b.path.as_ref().map(|x| path_key(x)).as_ref() == Some(&key))
+        {
             self.cur = i;
             return;
         }
@@ -874,7 +918,7 @@ impl Editor {
                 if c == 'd' {
                     self.goto_diag(p == ']');
                 }
-            },
+            }
             'f' | 'F' | 't' | 'T' => self.motion_or_op(p, Some(c)),
             'r' => self.replace_chars(c),
             _ => self.reset_pending(),
@@ -998,7 +1042,9 @@ impl Editor {
     fn do_motion(&mut self, m: char, arg: Option<char>) {
         let (n, given) = self.take_n();
         self.prefix = None;
-        let Some(((x, y), _)) = self.motion_target(m, arg, n, given) else { return };
+        let Some(((x, y), _)) = self.motion_target(m, arg, n, given) else {
+            return;
+        };
         let allow = matches!(self.mode, Mode::Visual | Mode::VisualLine);
         let b = self.buf_mut();
         b.cy = y;
@@ -1021,7 +1067,7 @@ impl Editor {
         self.prefix = None;
         let cur = (self.buf().cx, self.buf().cy);
         let under = self.buf().lines[cur.1].get(cur.0).copied();
-        let (target, kind) = if op == 'c' && m == 'w' && n == 1 && under.map_or(false, |c| !c.is_whitespace()) {
+        let (target, kind) = if op == 'c' && m == 'w' && n == 1 && under.is_some_and(|c| !c.is_whitespace()) {
             let line = &self.buf().lines[cur.1];
             let k = cls(line[cur.0]);
             let mut x = cur.0;
@@ -1039,7 +1085,11 @@ impl Editor {
         match kind {
             MKind::Line => self.op_lines(op, cur.1.min(target.1), cur.1.max(target.1)),
             _ => {
-                let (a, mut e) = if (target.1, target.0) < (cur.1, cur.0) { (target, cur) } else { (cur, target) };
+                let (a, mut e) = if (target.1, target.0) < (cur.1, cur.0) {
+                    (target, cur)
+                } else {
+                    (cur, target)
+                };
                 if kind == MKind::Incl {
                     e.0 += 1;
                 }
@@ -1207,7 +1257,7 @@ impl Editor {
             let next = b.lines.remove(b.cy + 1);
             let trimmed: Vec<char> = next.iter().skip_while(|c| c.is_whitespace()).copied().collect();
             let line = &mut b.lines[b.cy];
-            while line.last().map_or(false, |c| c.is_whitespace()) {
+            while line.last().is_some_and(|c| c.is_whitespace()) {
                 line.pop();
             }
             b.cx = line.len();
@@ -1473,7 +1523,10 @@ impl Editor {
             ins.extend(&unit);
         }
         let pos = b.insert_text((cx, cy), &ins);
-        let closes = matches!((before, after), (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')')));
+        let closes = matches!(
+            (before, after),
+            (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')'))
+        );
         if closes {
             let mut tail = vec!['\n'];
             tail.extend(&base);
@@ -1603,8 +1656,20 @@ impl Editor {
         }
         match c {
             'f' | 'F' | 't' | 'T' | 'g' => self.prefix = Some(c),
-            'v' => self.mode = if self.mode == Mode::Visual { Mode::Normal } else { Mode::Visual },
-            'V' => self.mode = if self.mode == Mode::VisualLine { Mode::Normal } else { Mode::VisualLine },
+            'v' => {
+                self.mode = if self.mode == Mode::Visual {
+                    Mode::Normal
+                } else {
+                    Mode::Visual
+                }
+            }
+            'V' => {
+                self.mode = if self.mode == Mode::VisualLine {
+                    Mode::Normal
+                } else {
+                    Mode::VisualLine
+                }
+            }
             'o' => {
                 let a = self.anchor;
                 self.anchor = (self.buf().cx, self.buf().cy);
@@ -1756,7 +1821,11 @@ impl Editor {
             Some(i) => (&arg[..=i], &arg[i + 1..]),
             None => ("", arg),
         };
-        let read = if dir.is_empty() { PathBuf::from(".") } else { PathBuf::from(dir) };
+        let read = if dir.is_empty() {
+            PathBuf::from(".")
+        } else {
+            PathBuf::from(dir)
+        };
         let Ok(rd) = fs::read_dir(&read) else { return };
         let mut names: Vec<(String, bool)> = rd
             .filter_map(|e| e.ok())
@@ -1845,7 +1914,15 @@ impl Editor {
                     .bufs
                     .iter()
                     .enumerate()
-                    .map(|(i, b)| format!("{}{}:{}{}", if i == self.cur { "%" } else { "" }, i + 1, b.name, if b.dirty { "+" } else { "" }))
+                    .map(|(i, b)| {
+                        format!(
+                            "{}{}:{}{}",
+                            if i == self.cur { "%" } else { "" },
+                            i + 1,
+                            b.name,
+                            if b.dirty { "+" } else { "" }
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("  ");
                 self.info(s);
@@ -1916,23 +1993,40 @@ impl Editor {
                 let on = sub == "on";
                 self.presence.enable(on);
                 let _ = crate::config::set("discord", sub);
-                self.info(if on { t!("Discord durumu açık", "Discord presence on") } else { t!("Discord durumu kapalı", "Discord presence off") });
+                self.info(if on {
+                    t!("Discord durumu açık", "Discord presence on")
+                } else {
+                    t!("Discord durumu kapalı", "Discord presence off")
+                });
             }
             "id" if !val.is_empty() => {
                 if !val.chars().all(|c| c.is_ascii_digit()) {
-                    return self.error(t!("Uygulama kimliği yalnızca rakamlardan oluşmalı", "Application ID must contain only digits"));
+                    return self.error(t!(
+                        "Uygulama kimliği yalnızca rakamlardan oluşmalı",
+                        "Application ID must contain only digits"
+                    ));
                 }
                 self.presence.set_id(val.to_string());
                 match crate::config::set("discord_client_id", val) {
-                    Ok(()) => self.info(t!("Discord uygulama kimliği kaydedildi", "Discord application ID saved")),
+                    Ok(()) => self.info(t!(
+                        "Discord uygulama kimliği kaydedildi",
+                        "Discord application ID saved"
+                    )),
                     Err(e) => self.error(tf!("Ayar yazılamadı: {}", "Could not write config: {}", e)),
                 }
             }
             _ => {
                 let st = self.presence.status();
-                let on = if self.presence.enabled { t!("açık", "on") } else { t!("kapalı", "off") };
+                let on = if self.presence.enabled {
+                    t!("açık", "on")
+                } else {
+                    t!("kapalı", "off")
+                };
                 if self.presence.client_id.is_empty() {
-                    self.info(t!("Discord: kimlik yok — :discord id <APPLICATION_ID> ile ayarlayın", "Discord: no ID — set it with :discord id <APPLICATION_ID>"));
+                    self.info(t!(
+                        "Discord: kimlik yok — :discord id <APPLICATION_ID> ile ayarlayın",
+                        "Discord: no ID — set it with :discord id <APPLICATION_ID>"
+                    ));
                 } else {
                     self.info(format!("Discord: {} ({})", on, st));
                 }
@@ -1988,7 +2082,9 @@ impl Editor {
     }
 
     fn reload(&mut self) {
-        let Some(p) = self.buf().path.clone() else { return self.error(t!("Dosya adı yok", "No file name")) };
+        let Some(p) = self.buf().path.clone() else {
+            return self.error(t!("Dosya adı yok", "No file name"));
+        };
         match Buffer::open(&p) {
             Ok(mut nb) => {
                 let b = self.buf();
@@ -2008,12 +2104,18 @@ impl Editor {
             let abs = absolute(Path::new(p));
             self.lsp_close_buf(self.cur);
             let b = self.buf_mut();
-            b.name = abs.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            b.name = abs
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
             b.lang = highlight::detect(&abs);
             b.path = Some(abs);
         }
         if self.buf().path.is_none() {
-            self.error(t!("Dosya adı yok — :w <dosya> kullanın", "No file name — use :w <file>"));
+            self.error(t!(
+                "Dosya adı yok — :w <dosya> kullanın",
+                "No file name — use :w <file>"
+            ));
             return false;
         }
         match self.buf_mut().save() {
@@ -2053,7 +2155,10 @@ impl Editor {
 
     fn close_buffer(&mut self, force: bool, quit_if_last: bool) {
         if self.buf().dirty && !force && !self.is_scratch_output() {
-            return self.error(t!("Kaydedilmemiş değişiklikler var (zorlamak için ! ekleyin)", "Unsaved changes (add ! to override)"));
+            return self.error(t!(
+                "Kaydedilmemiş değişiklikler var (zorlamak için ! ekleyin)",
+                "Unsaved changes (add ! to override)"
+            ));
         }
         if self.bufs.len() == 1 {
             if quit_if_last {
@@ -2079,10 +2184,18 @@ impl Editor {
 
     fn quit_all(&mut self, force: bool) {
         if !force {
-            if let Some(i) = self.bufs.iter().position(|b| b.dirty && (b.path.is_some() || b.name == NONAME)) {
+            if let Some(i) = self
+                .bufs
+                .iter()
+                .position(|b| b.dirty && (b.path.is_some() || b.name == NONAME))
+            {
                 self.cur = i;
                 let name = self.bufs[i].name.clone();
-                return self.error(tf!("\"{}\" kaydedilmedi (:qa! ile zorla)", "\"{}\" is not saved (:qa! to force)", name));
+                return self.error(tf!(
+                    "\"{}\" kaydedilmedi (:qa! ile zorla)",
+                    "\"{}\" is not saved (:qa! to force)",
+                    name
+                ));
             }
         }
         self.quit = true;
@@ -2098,7 +2211,12 @@ impl Editor {
         if cmd.is_empty() {
             return self.error(t!("Kullanım: :!komut", "Usage: :!command"));
         }
-        let file = self.buf().path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        let file = self
+            .buf()
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         let full = cmd.replace('%', &format!("\"{}\"", file));
         let mut c = if cfg!(windows) {
             let mut c = Command::new("cmd");
@@ -2156,11 +2274,14 @@ impl Editor {
         let rest = &rest[2..];
         let parts: Vec<&str> = rest.split('/').collect();
         if parts.len() < 2 || parts[0].is_empty() {
-            return self.error(t!("Kullanım: :s/aranan/yeni/g  veya  :%s/aranan/yeni/g", "Usage: :s/old/new/g  or  :%s/old/new/g"));
+            return self.error(t!(
+                "Kullanım: :s/aranan/yeni/g  veya  :%s/aranan/yeni/g",
+                "Usage: :s/old/new/g  or  :%s/old/new/g"
+            ));
         }
         let pat: Vec<char> = parts[0].chars().collect();
         let rep: Vec<char> = parts[1].chars().collect();
-        let global = parts.get(2).map_or(false, |f| f.contains('g'));
+        let global = parts.get(2).is_some_and(|f| f.contains('g'));
         let b = self.buf_mut();
         b.checkpoint();
         let (y0, y1) = if all { (0, b.last()) } else { (b.cy, b.cy) };
@@ -2224,7 +2345,9 @@ impl Editor {
     }
 
     fn find_next(&mut self, fwd: bool) {
-        let Some(pat) = self.search.clone() else { return self.error(t!("Arama deseni yok", "No previous search pattern")) };
+        let Some(pat) = self.search.clone() else {
+            return self.error(t!("Arama deseni yok", "No previous search pattern"));
+        };
         self.hl_search = true;
         let b = self.buf();
         let n = b.lines.len();
@@ -2273,7 +2396,11 @@ impl Editor {
 
     fn pos_from_mouse(&self, x: u16, y: u16, l: &Layout) -> Pos {
         let b = self.buf();
-        let ly = if y < l.top { b.scroll_y.saturating_sub(1) } else { b.scroll_y + (y - l.top) as usize };
+        let ly = if y < l.top {
+            b.scroll_y.saturating_sub(1)
+        } else {
+            b.scroll_y + (y - l.top) as usize
+        };
         let ly = ly.min(b.last());
         let dcol = b.scroll_x + x.saturating_sub(l.text_x) as usize;
         (idx_at_col(&b.lines[ly], dcol), ly)
@@ -2315,7 +2442,10 @@ impl Editor {
                 }
                 return true;
             }
-            return matches!(m.kind, MouseEventKind::Moved | MouseEventKind::Up(_) | MouseEventKind::Drag(_));
+            return matches!(
+                m.kind,
+                MouseEventKind::Moved | MouseEventKind::Up(_) | MouseEventKind::Drag(_)
+            );
         }
         if self.popup.is_some() {
             let hit = Self::in_rect(self.popup_rect.get(), x, y);
@@ -2342,7 +2472,10 @@ impl Editor {
     }
 
     fn on_mouse(&mut self, m: MouseEvent) {
-        if matches!(m.kind, MouseEventKind::Down(_) | MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) {
+        if matches!(
+            m.kind,
+            MouseEventKind::Down(_) | MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+        ) {
             self.hover = None;
         }
         if self.mouse_overlays(&m) {
@@ -2361,7 +2494,7 @@ impl Editor {
                 if x == l.ai_x {
                     self.drag = Drag::AiSep;
                 } else {
-                    self.to_normal();
+                    self.back_to_normal();
                     self.ai_click(x, y);
                 }
                 return;
@@ -2399,7 +2532,7 @@ impl Editor {
                 }
                 if y == 0 {
                     if let Some(&(_, _, i)) = self.tab_spans.iter().find(|(a, b, _)| x >= *a && x < *b) {
-                        self.to_normal();
+                        self.back_to_normal();
                         self.cur = i;
                         self.focus = Focus::Editor;
                     }
@@ -2413,7 +2546,7 @@ impl Editor {
                     return;
                 }
                 if over_tree {
-                    self.to_normal();
+                    self.back_to_normal();
                     self.focus = Focus::Tree;
                     let row = (y - l.top) as usize;
                     if row == 0 {
@@ -2544,7 +2677,7 @@ impl Editor {
             MouseEventKind::Down(MouseButton::Middle) => {
                 if y == 0 {
                     if let Some(&(_, _, i)) = self.tab_spans.iter().find(|(a, b, _)| x >= *a && x < *b) {
-                        self.to_normal();
+                        self.back_to_normal();
                         self.cur = i;
                         self.close_buffer(false, false);
                     }
@@ -2569,7 +2702,11 @@ impl Editor {
                 let col = disp_col(&b.lines[b.cy], b.cx);
                 let w = l.text_w as usize;
                 if col < b.scroll_x || col >= b.scroll_x + w {
-                    let target = if col < b.scroll_x { b.scroll_x } else { b.scroll_x + w - 1 };
+                    let target = if col < b.scroll_x {
+                        b.scroll_x
+                    } else {
+                        b.scroll_x + w - 1
+                    };
                     b.cx = idx_at_col(&b.lines[b.cy], target);
                 }
             }

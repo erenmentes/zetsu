@@ -31,7 +31,12 @@ pub fn load() -> BTreeMap<String, String> {
 }
 
 pub fn set(key: &str, value: &str) -> std::io::Result<()> {
-    let p = path().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, t!("ayar klasörü yok", "no config directory")))?;
+    let p = path().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            t!("ayar klasörü yok", "no config directory"),
+        )
+    })?;
     let mut m = load();
     m.insert(key.to_string(), value.to_string());
     if let Some(d) = p.parent() {
@@ -45,5 +50,8 @@ pub fn set(key: &str, value: &str) -> std::io::Result<()> {
 }
 
 pub fn get_list(key: &str) -> Vec<String> {
-    load().get(key).map(|v| v.split('|').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()).unwrap_or_default()
+    load()
+        .get(key)
+        .map(|v| v.split('|').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect())
+        .unwrap_or_default()
 }

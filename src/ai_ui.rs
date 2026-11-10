@@ -27,7 +27,11 @@ struct PLine {
 
 impl PLine {
     fn new(cells: Cells) -> Self {
-        PLine { cells, bg: None, hits: Vec::new() }
+        PLine {
+            cells,
+            bg: None,
+            hits: Vec::new(),
+        }
     }
 }
 
@@ -47,7 +51,11 @@ fn wrap(src: &[(char, Style)], width: usize, hard: bool) -> Vec<Cells> {
     for &(c, st) in src {
         let cw = char_width(c, 0);
         if w + cw > width && !cur.is_empty() {
-            let sp = if hard { None } else { cur.iter().rposition(|x| x.0 == ' ') };
+            let sp = if hard {
+                None
+            } else {
+                cur.iter().rposition(|x| x.0 == ' ')
+            };
             match sp {
                 Some(i) if i > 0 => {
                     let rest = cur.split_off(i + 1);
@@ -103,7 +111,7 @@ impl Editor {
         if visual {
             self.ai.sel_ctx = self.selection_ctx();
         }
-        self.to_normal();
+        self.back_to_normal();
         self.ai.visible = true;
         self.focus = Focus::Ai;
         if self.ai.model.is_empty() && (!self.ai.needs_key() || !self.ai.key().is_empty()) {
@@ -131,7 +139,11 @@ impl Editor {
         let (a, e) = self.selection();
         let b = self.buf();
         let (y0, y1) = (a.1.min(b.last()), e.1.min(b.last()));
-        let content: String = b.lines[y0..=y1].iter().map(|l| l.iter().collect::<String>()).collect::<Vec<_>>().join("\n");
+        let content: String = b.lines[y0..=y1]
+            .iter()
+            .map(|l| l.iter().collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
         Some(Ctx {
             path: b.path.clone(),
             label: format!("{}:{}-{}", self.rel_path(b), y0 + 1, y1 + 1),
@@ -164,7 +176,13 @@ impl Editor {
         if truncated {
             content.push_str("\n... (truncated)");
         }
-        Some(Ctx { path: b.path.clone(), label: self.rel_path(b), lang: self.lang_tag(self.cur), content, sel: None })
+        Some(Ctx {
+            path: b.path.clone(),
+            label: self.rel_path(b),
+            lang: self.lang_tag(self.cur),
+            content,
+            sel: None,
+        })
     }
 
     pub(crate) fn ai_send(&mut self) {
@@ -186,12 +204,28 @@ impl Editor {
         let mut ctx = self.ai.sel_ctx.take();
         if ctx.is_none() && self.ai.attach {
             ctx = self.file_ctx().filter(|c| {
-                !self.ai.msgs.iter().rev().filter_map(|m| m.ctx.as_ref()).any(|p| p.path == c.path && p.content == c.content)
+                !self
+                    .ai
+                    .msgs
+                    .iter()
+                    .rev()
+                    .filter_map(|m| m.ctx.as_ref())
+                    .any(|p| p.path == c.path && p.content == c.content)
             });
         }
-        self.ai.msgs.push(Msg { role: Role::User, text, ctx, error: false });
+        self.ai.msgs.push(Msg {
+            role: Role::User,
+            text,
+            ctx,
+            error: false,
+        });
         let history: Vec<Msg> = self.ai.msgs.iter().filter(|m| !m.error).cloned().collect();
-        self.ai.msgs.push(Msg { role: Role::Assistant, text: String::new(), ctx: None, error: false });
+        self.ai.msgs.push(Msg {
+            role: Role::Assistant,
+            text: String::new(),
+            ctx: None,
+            error: false,
+        });
         self.ai.input.clear();
         self.ai.input_x = 0;
         self.ai.scroll = 0;
@@ -216,7 +250,12 @@ impl Editor {
                     if self.ai.streaming.as_ref().map(|x| x.0) == Some(id) {
                         self.ai.streaming = None;
                     }
-                    if self.ai.msgs.last().map_or(false, |m| m.role == Role::Assistant && m.text.is_empty()) {
+                    if self
+                        .ai
+                        .msgs
+                        .last()
+                        .is_some_and(|m| m.role == Role::Assistant && m.text.is_empty())
+                    {
                         self.ai.msgs.pop();
                     }
                     self.ai.save_chat();
@@ -225,10 +264,20 @@ impl Editor {
                     if self.ai.streaming.as_ref().map(|x| x.0) == Some(id) {
                         self.ai.streaming = None;
                     }
-                    if self.ai.msgs.last().map_or(false, |m| m.role == Role::Assistant && m.text.is_empty()) {
+                    if self
+                        .ai
+                        .msgs
+                        .last()
+                        .is_some_and(|m| m.role == Role::Assistant && m.text.is_empty())
+                    {
                         self.ai.msgs.pop();
                     }
-                    self.ai.msgs.push(Msg { role: Role::Assistant, text: e, ctx: None, error: true });
+                    self.ai.msgs.push(Msg {
+                        role: Role::Assistant,
+                        text: e,
+                        ctx: None,
+                        error: true,
+                    });
                     self.ai.save_chat();
                 }
                 AiEvent::Models(list) => {
@@ -258,8 +307,10 @@ impl Editor {
             self.ai.fetch_models();
             return self.info(t!("Modeller yükleniyor…", "Loading models…"));
         }
-        let mut items: Vec<(String, MenuAction)> =
-            vec![(tf!("⚙  Sağlayıcı: {}", "⚙  Provider: {}", self.ai.provider.id()), MenuAction::Cmd("ai_provider"))];
+        let mut items: Vec<(String, MenuAction)> = vec![(
+            tf!("⚙  Sağlayıcı: {}", "⚙  Provider: {}", self.ai.provider.id()),
+            MenuAction::Cmd("ai_provider"),
+        )];
         let mut sel = if self.ai.models.is_empty() { 0 } else { 1 };
         for m in &self.ai.models {
             if *m == self.ai.model {
@@ -277,7 +328,10 @@ impl Editor {
             .iter()
             .map(|p| {
                 let label = match p {
-                    Provider::OpenAI => t!("OpenAI uyumlu (OpenAI, OpenRouter, Groq, DeepSeek, Ollama…)", "OpenAI-compatible (OpenAI, OpenRouter, Groq, DeepSeek, Ollama…)"),
+                    Provider::OpenAI => t!(
+                        "OpenAI uyumlu (OpenAI, OpenRouter, Groq, DeepSeek, Ollama…)",
+                        "OpenAI-compatible (OpenAI, OpenRouter, Groq, DeepSeek, Ollama…)"
+                    ),
                     Provider::Anthropic => "Anthropic",
                     Provider::Gemini => "Google Gemini",
                 };
@@ -299,7 +353,10 @@ impl Editor {
     }
 
     pub(crate) fn ai_history_menu(&mut self) {
-        let mut items: Vec<(String, MenuAction)> = vec![(t!("+  Yeni sohbet", "+  New chat").to_string(), MenuAction::Cmd("ai_new"))];
+        let mut items: Vec<(String, MenuAction)> = vec![(
+            t!("+  Yeni sohbet", "+  New chat").to_string(),
+            MenuAction::Cmd("ai_new"),
+        )];
         for c in self.ai.list_chats().into_iter().take(200) {
             let age = crate::ai::now().saturating_sub(c.updated);
             let when = if age < 3600 {
@@ -312,7 +369,12 @@ impl Editor {
             let title = if c.title.is_empty() { "…".to_string() } else { c.title };
             items.push((format!("{:>6}  {}", when, title), MenuAction::Chat(c.id)));
         }
-        self.menu = Some(Menu::filterable(t!("Sohbet geçmişi", "Chat history").to_string(), items, 0, false));
+        self.menu = Some(Menu::filterable(
+            t!("Sohbet geçmişi", "Chat history").to_string(),
+            items,
+            0,
+            false,
+        ));
     }
 
     pub(crate) fn ai_command(&mut self, arg: &str) {
@@ -330,7 +392,11 @@ impl Editor {
             }
             "key" => {
                 if val.is_empty() {
-                    let st = if self.ai.key().is_empty() { t!("yok", "not set") } else { t!("ayarlı", "set") };
+                    let st = if self.ai.key().is_empty() {
+                        t!("yok", "not set")
+                    } else {
+                        t!("ayarlı", "set")
+                    };
                     return self.info(tf!("{} anahtarı: {}", "{} key: {}", self.ai.provider.id(), st));
                 }
                 match self.ai.set_key(val) {
@@ -350,7 +416,10 @@ impl Editor {
                     self.info(tf!("Sağlayıcı: {}", "Provider: {}", p.id()));
                 }
                 None if val.is_empty() => self.ai_provider_menu(),
-                None => self.error(t!("Kullanım: :ai provider openai|anthropic|gemini", "Usage: :ai provider openai|anthropic|gemini")),
+                None => self.error(t!(
+                    "Kullanım: :ai provider openai|anthropic|gemini",
+                    "Usage: :ai provider openai|anthropic|gemini"
+                )),
             },
             "model" => {
                 if val.is_empty() {
@@ -364,7 +433,11 @@ impl Editor {
                 if val.is_empty() {
                     return self.info(self.ai.base_url.clone());
                 }
-                let u = if val == "reset" { self.ai.provider.default_url().to_string() } else { val.to_string() };
+                let u = if val == "reset" {
+                    self.ai.provider.default_url().to_string()
+                } else {
+                    val.to_string()
+                };
                 self.ai.set_url(&u);
                 self.info(tf!("Adres: {}", "Endpoint: {}", u));
             }
@@ -413,7 +486,11 @@ impl Editor {
             .filter(|c| c.sel.is_some() && c.path.is_some());
         if let Some(c) = target {
             let key = path_key(c.path.as_ref().unwrap());
-            if let Some(i) = self.bufs.iter().position(|b| b.path.as_ref().map(|p| path_key(p)) == Some(key.clone())) {
+            if let Some(i) = self
+                .bufs
+                .iter()
+                .position(|b| b.path.as_ref().map(|p| path_key(p)) == Some(key.clone()))
+            {
                 let (y0, y1) = c.sel.unwrap();
                 let b = &mut self.bufs[i];
                 let y0 = y0.min(b.last());
@@ -425,7 +502,10 @@ impl Editor {
                 b.cx = 0;
                 self.cur = i;
                 self.focus = Focus::Editor;
-                return self.info(t!("Seçimin yerine uygulandı (geri almak için u)", "Applied over the selection (u to undo)"));
+                return self.info(t!(
+                    "Seçimin yerine uygulandı (geri almak için u)",
+                    "Applied over the selection (u to undo)"
+                ));
             }
         }
         let b = self.buf_mut();
@@ -440,12 +520,17 @@ impl Editor {
         b.cx = 0;
         b.touch();
         self.focus = Focus::Editor;
-        self.info(t!("İmleç konumuna eklendi (geri almak için u)", "Inserted at the cursor (u to undo)"));
+        self.info(t!(
+            "İmleç konumuna eklendi (geri almak için u)",
+            "Inserted at the cursor (u to undo)"
+        ));
     }
 
     pub(crate) fn ai_copy(&mut self, mi: usize, bi: usize) {
         let Some(msg) = self.ai.msgs.get(mi) else { return };
-        let Some((_, code)) = code_blocks(&msg.text).into_iter().nth(bi) else { return };
+        let Some((_, code)) = code_blocks(&msg.text).into_iter().nth(bi) else {
+            return;
+        };
         let lines: Vec<Vec<char>> = code.split('\n').map(|l| l.chars().collect()).collect();
         self.set_reg(Reg::Lines(lines));
         self.info(t!("Kod panoya kopyalandı", "Code copied to clipboard"));
@@ -529,7 +614,12 @@ impl Editor {
 
     pub(crate) fn ai_click(&mut self, x: u16, y: u16) {
         self.focus = Focus::Ai;
-        let hit = self.ai_hits.borrow().iter().find(|h| h.0 == y && x >= h.1 && x < h.2).map(|h| h.3);
+        let hit = self
+            .ai_hits
+            .borrow()
+            .iter()
+            .find(|h| h.0 == y && x >= h.1 && x < h.2)
+            .map(|h| h.3);
         match hit {
             Some(AiHit::Close) => self.ai_close(),
             Some(AiHit::Model) => self.ai_model_menu(),
@@ -556,7 +646,10 @@ impl Editor {
             let rows: Vec<(String, Style)> = vec![
                 (t!("AI asistanı", "AI assistant").to_string(), Style::fg(BRIGHT).bold()),
                 (String::new(), Style::new()),
-                (tf!("Sağlayıcı  {}", "Provider   {}", ai.provider.id()), Style::fg(BRIGHT)),
+                (
+                    tf!("Sağlayıcı  {}", "Provider   {}", ai.provider.id()),
+                    Style::fg(BRIGHT),
+                ),
                 (tf!("Adres      {}", "Endpoint   {}", ai.base_url), Style::fg(DIM)),
                 (
                     tf!(
@@ -573,7 +666,15 @@ impl Editor {
                     Style::fg(if key_set || !ai.needs_key() { STR } else { TYPE }),
                 ),
                 (
-                    tf!("Model      {}", "Model      {}", if ai.model.is_empty() { t!("seçilmedi", "not selected") } else { ai.model.as_str() }),
+                    tf!(
+                        "Model      {}",
+                        "Model      {}",
+                        if ai.model.is_empty() {
+                            t!("seçilmedi", "not selected")
+                        } else {
+                            ai.model.as_str()
+                        }
+                    ),
                     Style::fg(if ai.model.is_empty() { TYPE } else { BRIGHT }),
                 ),
                 (String::new(), Style::new()),
@@ -582,10 +683,26 @@ impl Editor {
                 (":ai model".into(), Style::fg(LOGO_GREEN)),
                 (":ai url https://openrouter.ai/api/v1".into(), Style::fg(LOGO_GREEN)),
                 (String::new(), Style::new()),
-                (t!("Enter gönder · Ctrl+J yeni satır", "Enter send · Ctrl+J newline").to_string(), Style::fg(DIM)),
-                (t!("Ctrl+T dosya bağlamını aç/kapat", "Ctrl+T toggle file context").to_string(), Style::fg(DIM)),
-                (t!("Ctrl+N yeni sohbet · Ctrl+H geçmiş", "Ctrl+N new chat · Ctrl+H history").to_string(), Style::fg(DIM)),
-                (t!("Ctrl+L paneli aç/kapat · Esc editöre dön", "Ctrl+L toggle panel · Esc back to editor").to_string(), Style::fg(DIM)),
+                (
+                    t!("Enter gönder · Ctrl+J yeni satır", "Enter send · Ctrl+J newline").to_string(),
+                    Style::fg(DIM),
+                ),
+                (
+                    t!("Ctrl+T dosya bağlamını aç/kapat", "Ctrl+T toggle file context").to_string(),
+                    Style::fg(DIM),
+                ),
+                (
+                    t!("Ctrl+N yeni sohbet · Ctrl+H geçmiş", "Ctrl+N new chat · Ctrl+H history").to_string(),
+                    Style::fg(DIM),
+                ),
+                (
+                    t!(
+                        "Ctrl+L paneli aç/kapat · Esc editöre dön",
+                        "Ctrl+L toggle panel · Esc back to editor"
+                    )
+                    .to_string(),
+                    Style::fg(DIM),
+                ),
             ];
             for (t, st) in rows {
                 for l in wrap(&cells(&t, st), width, false) {
@@ -686,7 +803,9 @@ impl Editor {
                     }
                     if mi == n - 1 && streaming_last {
                         match out.last_mut() {
-                            Some(l) if !m.text.is_empty() && !m.text.ends_with('\n') => l.cells.push(('▍', Style::fg(DIM))),
+                            Some(l) if !m.text.is_empty() && !m.text.ends_with('\n') => {
+                                l.cells.push(('▍', Style::fg(DIM)))
+                            }
                             _ => out.push(PLine::new(cells("▍", Style::fg(DIM)))),
                         }
                     }
@@ -718,7 +837,11 @@ impl Editor {
         s.put(x0 + 1, top, "✕", Style::fg(ERR).on(BAR).bold());
         hits.push((top, x0, x0 + 3, AiHit::Close));
         let x = s.put(x0 + 3, top, " AI ", Style::fg(BRIGHT).on(BAR).bold());
-        let model = if self.ai.model.is_empty() { t!("model seç", "pick model").to_string() } else { self.ai.model.clone() };
+        let model = if self.ai.model.is_empty() {
+            t!("model seç", "pick model").to_string()
+        } else {
+            self.ai.model.clone()
+        };
         let label = format!(" {} · {} ▾", self.ai.provider.id(), model);
         let right = " + ≡ ";
         let room = (x0 + pw).saturating_sub(x + text_w(right) as u16 + 1) as usize;
@@ -759,7 +882,11 @@ impl Editor {
         }
         let max_rows = 6.min((l.text_h as usize).saturating_sub(6)).max(1);
         let in_rows = rows.len().min(max_rows);
-        let first_row = if cur_pos.0 >= in_rows { cur_pos.0 + 1 - in_rows } else { 0 };
+        let first_row = if cur_pos.0 >= in_rows {
+            cur_pos.0 + 1 - in_rows
+        } else {
+            0
+        };
 
         let hint_y = bottom - 1;
         let input_y = hint_y - in_rows as u16;
@@ -782,14 +909,30 @@ impl Editor {
         }
         let chip = ctx_label.unwrap_or_else(|| t!(" bağlam yok ", " no context ").to_string());
         let cx = x0 + 1;
-        let ce = put_clip(s, cx, sep_y, &chip, Style::fg(if self.ai.attach || self.ai.sel_ctx.is_some() { MACRO } else { DIM }), inner);
+        let ce = put_clip(
+            s,
+            cx,
+            sep_y,
+            &chip,
+            Style::fg(if self.ai.attach || self.ai.sel_ctx.is_some() {
+                MACRO
+            } else {
+                DIM
+            }),
+            inner,
+        );
         hits.push((sep_y, cx, ce, AiHit::Context));
 
         for r in 0..in_rows {
             let y = input_y + r as u16;
             let idx = first_row + r;
             let prefix = if idx == 0 { "› " } else { "  " };
-            s.put(x0 + 1, y, prefix, Style::fg(if focused { LOGO_GREEN } else { DIM }).bold());
+            s.put(
+                x0 + 1,
+                y,
+                prefix,
+                Style::fg(if focused { LOGO_GREEN } else { DIM }).bold(),
+            );
             if let Some(row) = rows.get(idx) {
                 let t: String = row.iter().collect();
                 put_clip(s, x0 + 3, y, &t, Style::fg(BRIGHT), input_w);
@@ -802,13 +945,17 @@ impl Editor {
         if focused {
             let (cr, cc) = cur_pos;
             if cr >= first_row && cr < first_row + in_rows {
-                self.ai_cursor.set(Some((x0 + 3 + cc as u16, input_y + (cr - first_row) as u16)));
+                self.ai_cursor
+                    .set(Some((x0 + 3 + cc as u16, input_y + (cr - first_row) as u16)));
             }
         }
         let hint = if self.ai.streaming.is_some() {
             t!("yanıt geliyor… Ctrl+C durdur", "streaming… Ctrl+C to stop")
         } else if focused {
-            t!("Enter gönder · Ctrl+J satır · Esc editör", "Enter send · Ctrl+J newline · Esc editor")
+            t!(
+                "Enter gönder · Ctrl+J satır · Esc editör",
+                "Enter send · Ctrl+J newline · Esc editor"
+            )
         } else {
             t!("Ctrl+L ile odaklan", "Ctrl+L to focus")
         };

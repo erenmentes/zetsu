@@ -32,10 +32,20 @@ fn read_dir(p: &Path, depth: usize) -> Vec<Node> {
             }
             let path = e.path();
             let is_dir = path.is_dir();
-            Some(Node { path, name, depth, is_dir, expanded: false })
+            Some(Node {
+                path,
+                name,
+                depth,
+                is_dir,
+                expanded: false,
+            })
         })
         .collect();
-    v.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    v.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
     v
 }
 
@@ -55,7 +65,14 @@ fn build(p: &Path, depth: usize, expanded: &HashSet<PathBuf>, out: &mut Vec<Node
 impl Tree {
     pub fn new(root: PathBuf) -> Self {
         let nodes = read_dir(&root, 0);
-        Tree { root, nodes, sel: 0, scroll: 0, visible: true, width: 28 }
+        Tree {
+            root,
+            nodes,
+            sel: 0,
+            scroll: 0,
+            visible: true,
+            width: 28,
+        }
     }
 
     pub fn root_name(&self) -> String {
@@ -103,8 +120,12 @@ impl Tree {
     }
 
     pub fn refresh(&mut self) {
-        let expanded: HashSet<PathBuf> =
-            self.nodes.iter().filter(|n| n.expanded).map(|n| n.path.clone()).collect();
+        let expanded: HashSet<PathBuf> = self
+            .nodes
+            .iter()
+            .filter(|n| n.expanded)
+            .map(|n| n.path.clone())
+            .collect();
         let sel_path = self.nodes.get(self.sel).map(|n| n.path.clone());
         let mut out = Vec::new();
         build(&self.root, 0, &expanded, &mut out);

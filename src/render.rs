@@ -1,7 +1,7 @@
 use crate::buffer::{char_width, disp_col};
 use crate::editor::{find_all, Editor, Focus, Layout, Mode, MENU_ROWS, POPUP_ROWS};
-use crate::lsp::from_lsp_col;
 use crate::highlight::{self, Tok};
+use crate::lsp::from_lsp_col;
 use crate::screen::{Screen, Style};
 use crossterm::style::Color;
 use unicode_width::UnicodeWidthStr;
@@ -102,7 +102,14 @@ fn draw_box(s: &mut Screen, x: u16, y: u16, w: u16, h: u16, title: &str) {
         s.put_char(x + w - 1, y + r, '│', b);
     }
     if !title.is_empty() && w > 6 {
-        put_clip(s, x + 2, y, &format!(" {} ", title), Style::fg(BRIGHT).on(POP).bold(), w as usize - 4);
+        put_clip(
+            s,
+            x + 2,
+            y,
+            &format!(" {} ", title),
+            Style::fg(BRIGHT).on(POP).bold(),
+            w as usize - 4,
+        );
     }
 }
 
@@ -178,7 +185,11 @@ impl Editor {
         let mut x = 0u16;
         for (i, b) in self.bufs.iter().enumerate() {
             let label = format!(" {}{} ", Editor::display_name(b), if b.dirty { " ●" } else { "" });
-            let st = if i == self.cur { Style::fg(BRIGHT).bold() } else { Style::fg(DIM).on(BAR) };
+            let st = if i == self.cur {
+                Style::fg(BRIGHT).bold()
+            } else {
+                Style::fg(DIM).on(BAR)
+            };
             let nx = s.put(x, 0, &label, st);
             self.tab_spans.push((x, nx, i));
             x = nx;
@@ -243,11 +254,18 @@ impl Editor {
     }
 
     fn draw_splash(&self, s: &mut Screen, l: &Layout) {
-        const LOGO: [&str; 3] = ["▀▀█ █▀▀ ▀█▀ █▀▀ █ █  ", "▄▀  █▀▀  █  ▀▀█ █ █  ", "▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀ ▄"];
+        const LOGO: [&str; 3] = [
+            "▀▀█ █▀▀ ▀█▀ █▀▀ █ █  ",
+            "▄▀  █▀▀  █  ▀▀█ █ █  ",
+            "▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀ ▄",
+        ];
         let keys: [(&str, &str); 6] = [
             ("Ctrl+k", t!("klasör aç", "open folder")),
             ("Ctrl+b", t!("dosya ağacını göster / gizle", "toggle file tree")),
-            (t!(":e ad", ":e name"), t!("dosya aç ya da oluştur", "open or create a file")),
+            (
+                t!(":e ad", ":e name"),
+                t!("dosya aç ya da oluştur", "open or create a file"),
+            ),
             ("i", t!("yazmaya başla  (Esc ile çık)", "start typing  (Esc to stop)")),
             (":help", t!("tüm kısayollar", "all shortcuts")),
             (":q", t!("çık", "quit")),
@@ -274,13 +292,21 @@ impl Editor {
         for row in LOGO {
             let mut x = lx;
             for c in row.chars() {
-                let st = if c == '▄' { Style::fg(BRIGHT) } else { Style::fg(LOGO_GREEN) };
+                let st = if c == '▄' {
+                    Style::fg(BRIGHT)
+                } else {
+                    Style::fg(LOGO_GREEN)
+                };
                 x += s.put_char(x, y, c, st);
             }
             y += 1;
         }
         y += 1;
-        let tag = tf!("performance-first terminal IDE  ·  v{}", "performance-first terminal IDE  ·  v{}", env!("CARGO_PKG_VERSION"));
+        let tag = tf!(
+            "performance-first terminal IDE  ·  v{}",
+            "performance-first terminal IDE  ·  v{}",
+            env!("CARGO_PKG_VERSION")
+        );
         s.put(center(text_w(&tag)), y, &tag, Style::fg(DIM));
         y += 2;
         if !show_keys {
@@ -304,7 +330,10 @@ impl Editor {
             y += 1;
             let room = (area_w as usize).saturating_sub((kx - area_x) as usize + 2);
             for (i, p) in self.recent.iter().take(recent_n).enumerate() {
-                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string());
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.display().to_string());
                 s.put(kx, y, &(i + 1).to_string(), Style::fg(LOGO_GREEN));
                 let nx = put_clip(s, kx + 3, y, &name, Style::fg(BRIGHT), 22.min(room));
                 let px = (kx + 3 + 22).max(nx + 2);
@@ -360,13 +389,18 @@ impl Editor {
             if let Some(ds) = diags {
                 for d in ds.iter().filter(|d| d.l0 <= ly && ly <= d.l1) {
                     let x0 = if d.l0 == ly { from_lsp_col(line, d.c0, d.enc) } else { 0 };
-                    let mut x1 = if d.l1 == ly { from_lsp_col(line, d.c1, d.enc) } else { line.len() };
+                    let mut x1 = if d.l1 == ly {
+                        from_lsp_col(line, d.c1, d.enc)
+                    } else {
+                        line.len()
+                    };
                     if x1 <= x0 {
                         x1 = x0 + 1;
                     }
-                    for k in x0..x1.min(line.len() + 1) {
-                        if ulm[k] == 0 || d.sev < ulm[k] {
-                            ulm[k] = d.sev;
+                    let end = x1.min(line.len() + 1);
+                    for u in ulm.iter_mut().take(end).skip(x0) {
+                        if *u == 0 || d.sev < *u {
+                            *u = d.sev;
                         }
                     }
                     if sign == 0 || d.sev < sign {
@@ -378,7 +412,11 @@ impl Editor {
                 s.put_char(l.ed_x, sy, '●', Style::fg(sev_color(sign)));
             }
             if self.numbers {
-                let num = if self.relative && ly != b.cy { ly.abs_diff(b.cy) } else { ly + 1 };
+                let num = if self.relative && ly != b.cy {
+                    ly.abs_diff(b.cy)
+                } else {
+                    ly + 1
+                };
                 let txt = format!("{:>w$} ", num, w = (l.gutter - 3) as usize);
                 let st = if ly == b.cy { Style::fg(BRIGHT) } else { Style::fg(DIM) };
                 s.put(l.ed_x + 1, sy, &txt, st);
@@ -387,8 +425,8 @@ impl Editor {
             let mut mask = vec![false; line.len()];
             if let Some(p) = pat {
                 for m in find_all(line, p) {
-                    for k in m..m + p.len() {
-                        mask[k] = true;
+                    for v in mask.iter_mut().skip(m).take(p.len()) {
+                        *v = true;
                     }
                 }
             }
@@ -458,13 +496,21 @@ impl Editor {
         if b.dirty {
             s.put(x, y, " [+]", Style::fg(TYPE).on(BAR));
         }
-        let pct = if b.lines.len() <= 1 { 100 } else { b.cy * 100 / (b.lines.len() - 1) };
+        let pct = if b.lines.len() <= 1 {
+            100
+        } else {
+            b.cy * 100 / (b.lines.len() - 1)
+        };
         let col = disp_col(&b.lines[b.cy], b.cx) + 1;
         let right = format!(
             "{}  {}{}  {}  {}:{}  {:>3}% ",
             self.pending_str(),
             self.lsp_status().map(|s| s + "  ").unwrap_or_default(),
-            if b.lang.name == "Metin" { t!("Metin", "Text") } else { b.lang.name },
+            if b.lang.name == "Metin" {
+                t!("Metin", "Text")
+            } else {
+                b.lang.name
+            },
             if b.crlf { "CRLF" } else { "LF" },
             b.cy + 1,
             col,
@@ -526,14 +572,28 @@ impl Editor {
             return;
         }
         let vis = &p.shown[p.scroll..p.scroll + rows];
-        let labw = vis.iter().map(|&i| text_w(&p.items[i].label)).max().unwrap_or(0).min(42);
-        let detw = vis.iter().map(|&i| text_w(&p.items[i].detail)).max().unwrap_or(0).min(32);
+        let labw = vis
+            .iter()
+            .map(|&i| text_w(&p.items[i].label))
+            .max()
+            .unwrap_or(0)
+            .min(42);
+        let detw = vis
+            .iter()
+            .map(|&i| text_w(&p.items[i].detail))
+            .max()
+            .unwrap_or(0)
+            .min(32);
         let mut w = (6 + labw + if detw > 0 { 2 + detw } else { 0 } + 1) as u16;
         w = w.min(s.w);
         let mut x0 = cxs.saturating_sub(typed).saturating_sub(6);
         x0 = x0.min(s.w.saturating_sub(w));
         let below = s.h.saturating_sub(2).saturating_sub(cys + 1);
-        let y0 = if rows as u16 <= below { cys + 1 } else { cys.saturating_sub(rows as u16) };
+        let y0 = if rows as u16 <= below {
+            cys + 1
+        } else {
+            cys.saturating_sub(rows as u16)
+        };
         for (r, &i) in vis.iter().enumerate() {
             let it = &p.items[i];
             let y = y0 + r as u16;
@@ -565,8 +625,12 @@ impl Editor {
         s.fill(x0, y, w, Style::new().on(POP));
         let mut x = x0 + 1;
         for (i, c) in label.chars().enumerate() {
-            let active = hl.map_or(false, |(a, b)| i >= a && i < b);
-            let st = if active { Style::fg(TYPE).on(POP).bold() } else { Style::fg(DIM).on(POP) };
+            let active = hl.is_some_and(|(a, b)| i >= a && i < b);
+            let st = if active {
+                Style::fg(TYPE).on(POP).bold()
+            } else {
+                Style::fg(DIM).on(POP)
+            };
             if x + 1 >= x0 + w {
                 break;
             }
@@ -577,7 +641,7 @@ impl Editor {
     fn draw_hover(&self, s: &mut Screen, l: &Layout) {
         let Some(lines) = &self.hover else { return };
         let (cxs, cys) = self.cursor_pos().unwrap_or((l.text_x, l.top));
-        let maxw = (s.w as usize).saturating_sub(4).min(90).max(10);
+        let maxw = (s.w as usize).saturating_sub(4).clamp(10, 90);
         let inner = maxw - 4;
         let mut wrapped: Vec<String> = Vec::new();
         for ln in lines {
@@ -595,13 +659,23 @@ impl Editor {
             wrapped.push(cur);
         }
         let rows = wrapped.len().min((s.h as usize).saturating_sub(6)).max(1);
-        let w = (wrapped.iter().map(|t| text_w(t)).max().unwrap_or(0) + 4).max(12).min(maxw) as u16;
+        let w = (wrapped.iter().map(|t| text_w(t)).max().unwrap_or(0) + 4)
+            .max(12)
+            .min(maxw) as u16;
         let h = rows as u16 + 2;
-        let y0 = if cys >= l.top + h { cys - h } else { (cys + 1).min(s.h.saturating_sub(2 + h)) };
+        let y0 = if cys >= l.top + h {
+            cys - h
+        } else {
+            (cys + 1).min(s.h.saturating_sub(2 + h))
+        };
         let x0 = cxs.min(s.w.saturating_sub(w));
         draw_box(s, x0, y0, w, h, "");
         for (r, t) in wrapped.iter().take(rows).enumerate() {
-            let st = if r == 0 { Style::fg(FUNC).on(POP) } else { Style::fg(BRIGHT).on(POP) };
+            let st = if r == 0 {
+                Style::fg(FUNC).on(POP)
+            } else {
+                Style::fg(BRIGHT).on(POP)
+            };
             put_clip(s, x0 + 2, y0 + 1 + r as u16, t, st, w as usize - 4);
         }
     }
@@ -609,14 +683,18 @@ impl Editor {
     fn draw_menu(&self, s: &mut Screen, l: &Layout) {
         self.menu_rect.set(None);
         let Some(m) = &self.menu else { return };
-        let rows = m.items.len().min(MENU_ROWS).max(1);
+        let rows = m.items.len().clamp(1, MENU_ROWS);
         let itemw = m.items.iter().map(|i| text_w(&i.0)).max().unwrap_or(0);
         let min_w = if m.filter.is_some() { 44 } else { 20 };
         let w = (itemw + 4).max(text_w(&m.title) + 8).max(min_w).min(s.w as usize - 2) as u16;
         let h = rows as u16 + 2;
         let (x0, y0) = match m.anchor {
             Some((ax, ay)) => {
-                let y = if ay + h < s.h.saturating_sub(1) { ay } else { ay.saturating_sub(h + 1) };
+                let y = if ay + h < s.h.saturating_sub(1) {
+                    ay
+                } else {
+                    ay.saturating_sub(h + 1)
+                };
                 (ax.min(s.w.saturating_sub(w)), y)
             }
             None => {
@@ -634,13 +712,24 @@ impl Editor {
             let Some((t, _)) = m.items.get(i) else { break };
             let y = y0 + 1 + r as u16;
             let sel = i == m.sel;
-            let st = if sel { Style::fg(BRIGHT).on(SEL) } else { Style::new().on(POP) };
+            let st = if sel {
+                Style::fg(BRIGHT).on(SEL)
+            } else {
+                Style::new().on(POP)
+            };
             s.fill(x0 + 1, y, w - 2, st);
             put_clip(s, x0 + 2, y, t, st, w as usize - 4);
         }
         if m.items.len() > rows {
             let c = format!(" {}/{} ", m.sel + 1, m.items.len());
-            put_clip(s, x0 + w - 2 - text_w(&c) as u16, y0 + h - 1, &c, Style::fg(DIM).on(POP), 12);
+            put_clip(
+                s,
+                x0 + w - 2 - text_w(&c) as u16,
+                y0 + h - 1,
+                &c,
+                Style::fg(DIM).on(POP),
+                12,
+            );
         }
         self.menu_rect.set(Some((x0, y0, w, h - 1)));
     }

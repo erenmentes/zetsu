@@ -14,9 +14,7 @@ mod tree;
 use crossterm::cursor::{SetCursorStyle, Show};
 use crossterm::event::{self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
 use crossterm::execute;
-use crossterm::terminal::{
-    self, DisableLineWrap, EnableLineWrap, EnterAlternateScreen, LeaveAlternateScreen,
-};
+use crossterm::terminal::{self, DisableLineWrap, EnableLineWrap, EnterAlternateScreen, LeaveAlternateScreen};
 use editor::Editor;
 use screen::Screen;
 use std::io::{self, BufWriter, Write};
@@ -33,7 +31,14 @@ fn setup() -> io::Result<()> {
 fn restore() {
     let mut out = io::stdout();
     let _ = execute!(out, DisableBracketedPaste);
-    let _ = execute!(out, DisableMouseCapture, EnableLineWrap, SetCursorStyle::DefaultUserShape, Show, LeaveAlternateScreen);
+    let _ = execute!(
+        out,
+        DisableMouseCapture,
+        EnableLineWrap,
+        SetCursorStyle::DefaultUserShape,
+        Show,
+        LeaveAlternateScreen
+    );
     let _ = terminal::disable_raw_mode();
     let _ = out.flush();
 }
@@ -81,8 +86,17 @@ fn main() -> io::Result<()> {
     match arg.as_deref() {
         Some("-h") | Some("--help") => {
             println!("zetsu {}", env!("CARGO_PKG_VERSION"));
-            println!("{}", t!("kullanım: zetsu [dosya | klasör]", "usage: zetsu [file | folder]"));
-            println!("{}", t!("Editörde :help tüm kısayolları gösterir.", "Type :help inside the editor for all shortcuts."));
+            println!(
+                "{}",
+                t!("kullanım: zetsu [dosya | klasör]", "usage: zetsu [file | folder]")
+            );
+            println!(
+                "{}",
+                t!(
+                    "Editörde :help tüm kısayolları gösterir.",
+                    "Type :help inside the editor for all shortcuts."
+                )
+            );
             return Ok(());
         }
         Some("-V") | Some("--version") => {

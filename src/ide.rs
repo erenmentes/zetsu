@@ -1,8 +1,8 @@
 use super::*;
 use crate::buffer::leading_ws;
 use crate::lsp::{
-    candidates, expand_snippet, from_lsp_col, language_id, path_key, path_to_uri, to_lsp_col, uri_to_path, Diag,
-    Enc, LspEvent, Pending,
+    candidates, expand_snippet, from_lsp_col, language_id, path_key, path_to_uri, to_lsp_col, uri_to_path, Diag, Enc,
+    LspEvent, Pending,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -76,7 +76,12 @@ impl Menu {
 
     fn apply_filter(&mut self) {
         let f = self.filter.clone().unwrap_or_default().to_lowercase();
-        self.items = self.base.iter().filter(|(t, _)| f.is_empty() || t.to_lowercase().contains(&f)).cloned().collect();
+        self.items = self
+            .base
+            .iter()
+            .filter(|(t, _)| f.is_empty() || t.to_lowercase().contains(&f))
+            .cloned()
+            .collect();
         self.sel = 0;
         self.scroll = 0;
     }
@@ -99,7 +104,12 @@ fn fuzzy(pat: &str, s: &str) -> Option<u8> {
 fn markup_text(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
-        Value::Array(a) => a.iter().map(markup_text).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n"),
+        Value::Array(a) => a
+            .iter()
+            .map(markup_text)
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n"),
         Value::Object(o) => o.get("value").and_then(|x| x.as_str()).unwrap_or("").to_string(),
         _ => String::new(),
     }
@@ -110,7 +120,6 @@ fn is_ident(c: char) -> bool {
 }
 
 impl Editor {
-
     pub(crate) fn lsp_lang(&self, i: usize) -> Option<&'static str> {
         let b = self.bufs.get(i)?;
         if b.path.is_some() && !candidates(b.lang.name).is_empty() {
@@ -181,7 +190,11 @@ impl Editor {
             return;
         }
         let path = self.bufs[i].path.clone().unwrap();
-        self.lsp.notify(lang, "textDocument/didClose", json!({ "textDocument": { "uri": path_to_uri(&path) } }));
+        self.lsp.notify(
+            lang,
+            "textDocument/didClose",
+            json!({ "textDocument": { "uri": path_to_uri(&path) } }),
+        );
         self.lsp.diags.remove(&path_key(&path));
         self.bufs[i].lsp_open = false;
     }
@@ -193,7 +206,8 @@ impl Editor {
         }
         self.lsp_sync(self.cur);
         let uri = path_to_uri(self.buf().path.as_ref().unwrap());
-        self.lsp.notify(lang, "textDocument/didSave", json!({ "textDocument": { "uri": uri } }));
+        self.lsp
+            .notify(lang, "textDocument/didSave", json!({ "textDocument": { "uri": uri } }));
     }
 
     pub fn lsp_tick(&mut self) -> bool {
@@ -242,12 +256,22 @@ impl Editor {
                         }
                     }
                 }
-                self.error(tf!("{} kapandı (:lsp restart ile yeniden başlat)", "{} exited (restart with :lsp restart)", name));
+                self.error(tf!(
+                    "{} kapandı (:lsp restart ile yeniden başlat)",
+                    "{} exited (restart with :lsp restart)",
+                    name
+                ));
             }
             LspEvent::Notification { lang, method, params } => match method.as_str() {
                 "textDocument/publishDiagnostics" => self.on_diagnostics(lang, &params),
                 "window/showMessage" => {
-                    let m = params["message"].as_str().unwrap_or("").lines().next().unwrap_or("").to_string();
+                    let m = params["message"]
+                        .as_str()
+                        .unwrap_or("")
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
                     if params["type"].as_u64().unwrap_or(4) <= 1 {
                         self.error(m);
                     } else {
@@ -260,7 +284,13 @@ impl Editor {
                 self.apply_workspace_edit(lang, &params["edit"]);
                 self.lsp.reply(lang, id, json!({ "applied": true }));
             }
-            LspEvent::Response { lang, id, kind, result, error } => {
+            LspEvent::Response {
+                lang,
+                id,
+                kind,
+                result,
+                error,
+            } => {
                 if let Some(e) = error {
                     if !matches!(kind, Pending::Completion | Pending::Signature | Pending::Hover) {
                         self.error(format!("LSP: {}", e));
@@ -290,7 +320,11 @@ impl Editor {
                             self.error(t!("Yeniden adlandırılamadı", "Rename failed"));
                         } else {
                             let n = self.apply_workspace_edit(lang, &result);
-                            self.info(tf!("{} dosyada yeniden adlandırıldı (:wa ile kaydet)", "Renamed in {} files (:wa to save)", n));
+                            self.info(tf!(
+                                "{} dosyada yeniden adlandırıldı (:wa ile kaydet)",
+                                "Renamed in {} files (:wa to save)",
+                                n
+                            ));
                         }
                     }
                     Pending::Execute | Pending::Init => {}
@@ -300,7 +334,9 @@ impl Editor {
     }
 
     fn on_diagnostics(&mut self, lang: &'static str, params: &Value) {
-        let Some(path) = params["uri"].as_str().and_then(uri_to_path) else { return };
+        let Some(path) = params["uri"].as_str().and_then(uri_to_path) else {
+            return;
+        };
         let enc = self.lsp.enc(lang);
         let num = |v: &Value| v.as_u64().unwrap_or(0) as usize;
         let ds: Vec<Diag> = params["diagnostics"]
@@ -346,21 +382,30 @@ impl Editor {
 
     pub fn diag_counts(&self) -> (usize, usize) {
         self.buf_diags(self.cur).map_or((0, 0), |ds| {
-            (ds.iter().filter(|d| d.sev == 1).count(), ds.iter().filter(|d| d.sev == 2).count())
+            (
+                ds.iter().filter(|d| d.sev == 1).count(),
+                ds.iter().filter(|d| d.sev == 2).count(),
+            )
         })
     }
 
     pub(crate) fn goto_diag(&mut self, fwd: bool) {
         let b = self.buf();
-        let Some(ds) = self.buf_diags(self.cur) else { return self.info(t!("Tanı yok", "No diagnostics")) };
+        let Some(ds) = self.buf_diags(self.cur) else {
+            return self.info(t!("Tanı yok", "No diagnostics"));
+        };
         let mut pos: Vec<(usize, usize, String)> = ds
             .iter()
             .map(|d| {
                 let l = d.l0.min(b.last());
-                (l, from_lsp_col(&b.lines[l], d.c0, d.enc), d.msg.lines().next().unwrap_or("").to_string())
+                (
+                    l,
+                    from_lsp_col(&b.lines[l], d.c0, d.enc),
+                    d.msg.lines().next().unwrap_or("").to_string(),
+                )
             })
             .collect();
-        pos.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        pos.sort_by_key(|a| (a.0, a.1));
         let cur = (b.cy, b.cx);
         let pick = if fwd {
             pos.iter().find(|p| (p.0, p.1) > cur).or(pos.first())
@@ -378,7 +423,9 @@ impl Editor {
 
     pub(crate) fn diag_menu(&mut self) {
         let b = self.buf();
-        let Some(ds) = self.buf_diags(self.cur) else { return self.info(t!("Tanı yok", "No diagnostics")) };
+        let Some(ds) = self.buf_diags(self.cur) else {
+            return self.info(t!("Tanı yok", "No diagnostics"));
+        };
         let path = b.path.clone().unwrap();
         let mut items: Vec<(u8, usize, String, MenuAction)> = ds
             .iter()
@@ -424,9 +471,15 @@ impl Editor {
         };
         if !self.lsp.ready(lang) {
             if self.lsp.alive(lang) {
-                self.info(t!("Dil sunucusu henüz hazır değil…", "Language server is still starting…"));
+                self.info(t!(
+                    "Dil sunucusu henüz hazır değil…",
+                    "Language server is still starting…"
+                ));
             } else {
-                self.error(t!("Dil sunucusu çalışmıyor (:lsp)", "Language server is not running (:lsp)"));
+                self.error(t!(
+                    "Dil sunucusu çalışmıyor (:lsp)",
+                    "Language server is not running (:lsp)"
+                ));
             }
             return None;
         }
@@ -439,37 +492,50 @@ impl Editor {
     }
 
     pub(crate) fn lsp_hover(&mut self) {
-        let Some(lang) = self.ready_lang("hoverProvider") else { return };
+        let Some(lang) = self.ready_lang("hoverProvider") else {
+            return;
+        };
         let p = self.tdpp(lang);
         self.lsp.request(lang, "textDocument/hover", p, Pending::Hover);
     }
 
     pub(crate) fn lsp_definition(&mut self) {
-        let Some(lang) = self.ready_lang("definitionProvider") else { return };
+        let Some(lang) = self.ready_lang("definitionProvider") else {
+            return;
+        };
         let p = self.tdpp(lang);
-        self.lsp.request(lang, "textDocument/definition", p, Pending::Definition);
+        self.lsp
+            .request(lang, "textDocument/definition", p, Pending::Definition);
     }
 
     pub(crate) fn lsp_references(&mut self) {
-        let Some(lang) = self.ready_lang("referencesProvider") else { return };
+        let Some(lang) = self.ready_lang("referencesProvider") else {
+            return;
+        };
         let mut p = self.tdpp(lang);
         p["context"] = json!({ "includeDeclaration": true });
-        self.lsp.request(lang, "textDocument/references", p, Pending::References);
+        self.lsp
+            .request(lang, "textDocument/references", p, Pending::References);
     }
 
     pub(crate) fn lsp_format(&mut self) {
-        let Some(lang) = self.ready_lang("documentFormattingProvider") else { return };
+        let Some(lang) = self.ready_lang("documentFormattingProvider") else {
+            return;
+        };
         let b = self.buf();
         let path = b.path.clone().unwrap();
         let p = json!({
             "textDocument": { "uri": path_to_uri(&path) },
             "options": { "tabSize": TAB_W, "insertSpaces": !b.use_tabs }
         });
-        self.lsp.request(lang, "textDocument/formatting", p, Pending::Format(path));
+        self.lsp
+            .request(lang, "textDocument/formatting", p, Pending::Format(path));
     }
 
     pub(crate) fn lsp_rename(&mut self, new_name: &str) {
-        let Some(lang) = self.ready_lang("renameProvider") else { return };
+        let Some(lang) = self.ready_lang("renameProvider") else {
+            return;
+        };
         let mut p = self.tdpp(lang);
         p["newName"] = json!(new_name);
         self.lsp.request(lang, "textDocument/rename", p, Pending::Rename);
@@ -500,10 +566,16 @@ impl Editor {
     }
 
     pub(crate) fn lsp_code_actions(&mut self) {
-        let Some(lang) = self.ready_lang("codeActionProvider") else { return };
+        let Some(lang) = self.ready_lang("codeActionProvider") else {
+            return;
+        };
         let enc = self.lsp.enc(lang);
         let visual = matches!(self.mode, Mode::Visual | Mode::VisualLine);
-        let (a, e) = if visual { self.selection() } else { ((self.buf().cx, self.buf().cy), (self.buf().cx, self.buf().cy)) };
+        let (a, e) = if visual {
+            self.selection()
+        } else {
+            ((self.buf().cx, self.buf().cy), (self.buf().cx, self.buf().cy))
+        };
         let b = self.buf();
         let range = json!({
             "start": { "line": a.1, "character": to_lsp_col(&b.lines[a.1], a.0, enc) },
@@ -511,14 +583,20 @@ impl Editor {
         });
         let diags: Vec<Value> = self
             .buf_diags(self.cur)
-            .map(|ds| ds.iter().filter(|d| d.l0 <= e.1 && a.1 <= d.l1).map(|d| d.raw.clone()).collect())
+            .map(|ds| {
+                ds.iter()
+                    .filter(|d| d.l0 <= e.1 && a.1 <= d.l1)
+                    .map(|d| d.raw.clone())
+                    .collect()
+            })
             .unwrap_or_default();
         let p = json!({
             "textDocument": { "uri": path_to_uri(b.path.as_ref().unwrap()) },
             "range": range,
             "context": { "diagnostics": diags, "triggerKind": 1 }
         });
-        self.lsp.request(lang, "textDocument/codeAction", p, Pending::CodeAction);
+        self.lsp
+            .request(lang, "textDocument/codeAction", p, Pending::CodeAction);
     }
 
     fn on_hover(&mut self, r: Value) {
@@ -529,12 +607,12 @@ impl Editor {
             if l.starts_with("```") {
                 continue;
             }
-            if l.is_empty() && lines.last().map_or(true, |x| x.is_empty()) {
+            if l.is_empty() && lines.last().is_none_or(|x| x.is_empty()) {
                 continue;
             }
             lines.push(l.replace("&nbsp;", " "));
         }
-        while lines.last().map_or(false, |l| l.is_empty()) {
+        while lines.last().is_some_and(|l| l.is_empty()) {
             lines.pop();
         }
         if lines.is_empty() {
@@ -555,7 +633,9 @@ impl Editor {
         } else {
             (&loc["uri"], &loc["range"])
         };
-        let Some(path) = uri.as_str().and_then(uri_to_path) else { return };
+        let Some(path) = uri.as_str().and_then(uri_to_path) else {
+            return;
+        };
         let line = range["start"]["line"].as_u64().unwrap_or(0) as usize;
         let col = range["start"]["character"].as_u64().unwrap_or(0) as usize;
         let enc = self.lsp.enc(lang);
@@ -575,14 +655,30 @@ impl Editor {
         let mut cache: HashMap<PathBuf, Vec<String>> = HashMap::new();
         let mut items = Vec::new();
         for loc in arr.iter().take(300) {
-            let Some(path) = loc["uri"].as_str().and_then(uri_to_path) else { continue };
+            let Some(path) = loc["uri"].as_str().and_then(uri_to_path) else {
+                continue;
+            };
             let line = loc["range"]["start"]["line"].as_u64().unwrap_or(0) as usize;
             let col = loc["range"]["start"]["character"].as_u64().unwrap_or(0) as usize;
-            let preview = match self.bufs.iter().find(|b| b.path.as_ref().map(|p| path_key(p)) == Some(path_key(&path))) {
-                Some(b) => b.lines.get(line).map(|l| l.iter().collect::<String>()).unwrap_or_default(),
+            let preview = match self
+                .bufs
+                .iter()
+                .find(|b| b.path.as_ref().map(|p| path_key(p)) == Some(path_key(&path)))
+            {
+                Some(b) => b
+                    .lines
+                    .get(line)
+                    .map(|l| l.iter().collect::<String>())
+                    .unwrap_or_default(),
                 None => cache
                     .entry(path.clone())
-                    .or_insert_with(|| fs::read_to_string(&path).unwrap_or_default().lines().map(|s| s.to_string()).collect())
+                    .or_insert_with(|| {
+                        fs::read_to_string(&path)
+                            .unwrap_or_default()
+                            .lines()
+                            .map(|s| s.to_string())
+                            .collect()
+                    })
                     .get(line)
                     .cloned()
                     .unwrap_or_default(),
@@ -597,7 +693,17 @@ impl Editor {
             return;
         }
         let n = items.len();
-        self.menu = Some(Menu { title: tf!("Referanslar ({})", "References ({})", n), items, sel: 0, scroll: 0, anchor: None, dir: None, filter: None, base: Vec::new(), custom_model: false });
+        self.menu = Some(Menu {
+            title: tf!("Referanslar ({})", "References ({})", n),
+            items,
+            sel: 0,
+            scroll: 0,
+            anchor: None,
+            dir: None,
+            filter: None,
+            base: Vec::new(),
+            custom_model: false,
+        });
     }
 
     fn on_code_actions(&mut self, lang: &'static str, r: Value) {
@@ -606,7 +712,7 @@ impl Editor {
             return self.info(t!("Kullanılabilir kod eylemi yok", "No code actions available"));
         }
         arr.sort_by_key(|a| {
-            let quick = a["kind"].as_str().map_or(false, |k| k.starts_with("quickfix"));
+            let quick = a["kind"].as_str().is_some_and(|k| k.starts_with("quickfix"));
             let pref = a["isPreferred"].as_bool().unwrap_or(false);
             (!pref, !quick)
         });
@@ -614,14 +720,24 @@ impl Editor {
             .into_iter()
             .map(|a| {
                 let mut t = a["title"].as_str().unwrap_or("?").to_string();
-                if a["kind"].as_str().map_or(false, |k| k.starts_with("quickfix")) {
+                if a["kind"].as_str().is_some_and(|k| k.starts_with("quickfix")) {
                     t = format!("⚡ {}", t);
                 }
                 (t, MenuAction::Code(lang, a))
             })
             .collect();
         let anchor = self.menu_anchor.take();
-        self.menu = Some(Menu { title: t!("Kod eylemleri", "Code actions").into(), items, sel: 0, scroll: 0, anchor, dir: None, filter: None, base: Vec::new(), custom_model: false });
+        self.menu = Some(Menu {
+            title: t!("Kod eylemleri", "Code actions").into(),
+            items,
+            sel: 0,
+            scroll: 0,
+            anchor,
+            dir: None,
+            filter: None,
+            base: Vec::new(),
+            custom_model: false,
+        });
     }
 
     pub(crate) fn run_action(&mut self, lang: &'static str, a: Value, allow_resolve: bool) {
@@ -662,7 +778,10 @@ impl Editor {
         let idx = (r["activeSignature"].as_u64().unwrap_or(0) as usize).min(sigs.len() - 1);
         let s = &sigs[idx];
         let label = s["label"].as_str().unwrap_or("").to_string();
-        let ap = s["activeParameter"].as_u64().or(r["activeParameter"].as_u64()).unwrap_or(0) as usize;
+        let ap = s["activeParameter"]
+            .as_u64()
+            .or(r["activeParameter"].as_u64())
+            .unwrap_or(0) as usize;
         let lc: Vec<char> = label.chars().collect();
         let hl = match &s["parameters"][ap]["label"] {
             Value::String(p) => {
@@ -683,10 +802,17 @@ impl Editor {
 
     fn on_format(&mut self, lang: &'static str, path: &Path, r: Value) {
         let Some(edits) = r.as_array() else {
-            return self.error(t!("Değişiklik yok ya da biçimlendirilemedi (sözdizimi hatası olabilir)", "No changes or formatting failed (syntax error?)"));
+            return self.error(t!(
+                "Değişiklik yok ya da biçimlendirilemedi (sözdizimi hatası olabilir)",
+                "No changes or formatting failed (syntax error?)"
+            ));
         };
         let key = path_key(path);
-        let Some(i) = self.bufs.iter().position(|b| b.path.as_ref().map(|p| path_key(p)) == Some(key.clone())) else {
+        let Some(i) = self
+            .bufs
+            .iter()
+            .position(|b| b.path.as_ref().map(|p| path_key(p)) == Some(key.clone()))
+        else {
             return;
         };
         if edits.is_empty() {
@@ -701,7 +827,11 @@ impl Editor {
 
     fn buf_index_for(&mut self, path: &Path) -> Option<usize> {
         let key = path_key(path);
-        if let Some(i) = self.bufs.iter().position(|b| b.path.as_ref().map(|p| path_key(p)) == Some(key.clone())) {
+        if let Some(i) = self
+            .bufs
+            .iter()
+            .position(|b| b.path.as_ref().map(|p| path_key(p)) == Some(key.clone()))
+        {
             return Some(i);
         }
         let b = Buffer::open(path).ok()?;
@@ -721,7 +851,10 @@ impl Editor {
         }
         if let Some(dc) = edit["documentChanges"].as_array() {
             for d in dc {
-                if let (Some(p), Some(e)) = (d["textDocument"]["uri"].as_str().and_then(uri_to_path), d["edits"].as_array()) {
+                if let (Some(p), Some(e)) = (
+                    d["textDocument"]["uri"].as_str().and_then(uri_to_path),
+                    d["edits"].as_array(),
+                ) {
                     per.push((p, e.clone()));
                 }
             }
@@ -757,7 +890,7 @@ impl Editor {
                 Some((s, en, t))
             })
             .collect();
-        es.sort_by(|a, b| (b.0 .1, b.0 .0).cmp(&(a.0 .1, a.0 .0)));
+        es.sort_by_key(|e| std::cmp::Reverse((e.0 .1, e.0 .0)));
         let mut delta = 0isize;
         for (s, e, t) in es {
             b.delete_text(s, e);
@@ -784,7 +917,9 @@ impl Editor {
 
     pub(crate) fn trigger_completion(&mut self, manual: bool, trig: Option<char>) {
         let lang = self.cur_ready().filter(|l| self.lsp.cap(l, "completionProvider"));
-        let Some(lang) = lang else { return self.word_completion(manual) };
+        let Some(lang) = lang else {
+            return self.word_completion(manual);
+        };
         self.lsp_sync(self.cur);
         if let Some(old) = self.comp_id.take() {
             self.lsp.cancel(lang, old);
@@ -797,7 +932,9 @@ impl Editor {
         if trig.is_none() && !manual {
             p["context"] = json!({ "triggerKind": 1 });
         }
-        self.comp_id = self.lsp.request(lang, "textDocument/completion", p, Pending::Completion);
+        self.comp_id = self
+            .lsp
+            .request(lang, "textDocument/completion", p, Pending::Completion);
     }
 
     fn word_completion(&mut self, manual: bool) {
@@ -848,7 +985,16 @@ impl Editor {
             })
             .collect();
         let y = self.buf().cy;
-        self.popup = Some(Popup { items, shown: Vec::new(), sel: 0, scroll: 0, y, start, lsp: false, incomplete: false });
+        self.popup = Some(Popup {
+            items,
+            shown: Vec::new(),
+            sel: 0,
+            scroll: 0,
+            y,
+            start,
+            lsp: false,
+            incomplete: false,
+        });
         self.refilter();
     }
 
@@ -860,7 +1006,10 @@ impl Editor {
         let (list, incomplete) = if r.is_array() {
             (r.as_array().cloned().unwrap_or_default(), false)
         } else {
-            (r["items"].as_array().cloned().unwrap_or_default(), r["isIncomplete"].as_bool().unwrap_or(false))
+            (
+                r["items"].as_array().cloned().unwrap_or_default(),
+                r["isIncomplete"].as_bool().unwrap_or(false),
+            )
         };
         let b = self.buf();
         let y = b.cy;
@@ -870,7 +1019,11 @@ impl Editor {
             .map(|it| {
                 let label = it["label"].as_str().unwrap_or("").to_string();
                 let te = &it["textEdit"];
-                let range = if te["range"].is_object() { &te["range"] } else { &te["replace"] };
+                let range = if te["range"].is_object() {
+                    &te["range"]
+                } else {
+                    &te["replace"]
+                };
                 let (text, start, end) = match te["newText"].as_str() {
                     Some(t) if range["start"]["line"].as_u64() == Some(y as u64) => {
                         let s = from_lsp_col(line, range["start"]["character"].as_u64().unwrap_or(0) as usize, enc);
@@ -880,7 +1033,14 @@ impl Editor {
                     Some(t) => (t.to_string(), None, None),
                     None => (it["insertText"].as_str().unwrap_or(&label).to_string(), None, None),
                 };
-                let mut detail = it["detail"].as_str().unwrap_or("").lines().next().unwrap_or("").trim().to_string();
+                let mut detail = it["detail"]
+                    .as_str()
+                    .unwrap_or("")
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
                 if detail.is_empty() {
                     if let Some(d) = it["labelDetails"]["description"].as_str() {
                         detail = d.to_string();
@@ -906,7 +1066,16 @@ impl Editor {
             return;
         }
         let start = self.word_start();
-        self.popup = Some(Popup { items, shown: Vec::new(), sel: 0, scroll: 0, y, start, lsp: true, incomplete });
+        self.popup = Some(Popup {
+            items,
+            shown: Vec::new(),
+            sel: 0,
+            scroll: 0,
+            y,
+            start,
+            lsp: true,
+            incomplete,
+        });
         self.refilter();
     }
 
@@ -920,8 +1089,12 @@ impl Editor {
             return;
         }
         let prefix: String = line[p.start..cx].iter().collect::<String>().to_lowercase();
-        let mut scored: Vec<(u8, usize)> =
-            p.items.iter().enumerate().filter_map(|(i, it)| fuzzy(&prefix, &it.filter).map(|s| (s, i))).collect();
+        let mut scored: Vec<(u8, usize)> = p
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, it)| fuzzy(&prefix, &it.filter).map(|s| (s, i)))
+            .collect();
         scored.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| p.items[a.1].sort.cmp(&p.items[b.1].sort)));
         p.shown = scored.into_iter().map(|x| x.1).collect();
         p.sel = 0;
@@ -966,7 +1139,11 @@ impl Editor {
         let cx = b.cx.min(len);
         let start = it.start.filter(|s| *s <= cx).unwrap_or(p.start).min(cx);
         let end = it.end.filter(|e| *e > cx && *e <= len).unwrap_or(cx);
-        let (raw, off) = if it.snippet { expand_snippet(&it.text) } else { (it.text.clone(), None) };
+        let (raw, off) = if it.snippet {
+            expand_snippet(&it.text)
+        } else {
+            (it.text.clone(), None)
+        };
         let base = leading_ws(&b.lines[y]);
         let mut chars: Vec<char> = Vec::new();
         let mut new_off = None;
@@ -988,7 +1165,7 @@ impl Editor {
             line_start = false;
             chars.push(c);
         }
-        if off.map_or(false, |o| o >= raw.chars().count()) {
+        if off.is_some_and(|o| o >= raw.chars().count()) {
             new_off = Some(chars.len());
         }
         b.delete_text((start, y), (end, y));
@@ -1019,12 +1196,15 @@ impl Editor {
         b.sync_want();
         if resolve {
             if let Some(lang) = self.cur_ready() {
-                let can = self.lsp.servers.get(lang).map_or(false, |s| {
-                    s.caps["completionProvider"]["resolveProvider"].as_bool().unwrap_or(false)
+                let can = self.lsp.servers.get(lang).is_some_and(|s| {
+                    s.caps["completionProvider"]["resolveProvider"]
+                        .as_bool()
+                        .unwrap_or(false)
                 });
                 if can {
                     let cur = self.cur;
-                    self.lsp.request(lang, "completionItem/resolve", raw, Pending::CompResolve(cur));
+                    self.lsp
+                        .request(lang, "completionItem/resolve", raw, Pending::CompResolve(cur));
                 }
             }
         }
@@ -1034,7 +1214,9 @@ impl Editor {
     }
 
     fn on_comp_resolve(&mut self, lang: &'static str, buf: usize, r: Value) {
-        let Some(edits) = r["additionalTextEdits"].as_array().filter(|e| !e.is_empty()).cloned() else { return };
+        let Some(edits) = r["additionalTextEdits"].as_array().filter(|e| !e.is_empty()).cloned() else {
+            return;
+        };
         if buf >= self.bufs.len() {
             return;
         }
@@ -1052,7 +1234,9 @@ impl Editor {
             return;
         }
         let lang = self.cur_ready();
-        let comp_trig = lang.map(|l| self.lsp.trigger_chars(l, "completionProvider")).unwrap_or_default();
+        let comp_trig = lang
+            .map(|l| self.lsp.trigger_chars(l, "completionProvider"))
+            .unwrap_or_default();
         if is_ident(c) {
             match &self.popup {
                 Some(p) if !p.incomplete => self.refilter(),
@@ -1068,7 +1252,9 @@ impl Editor {
         } else {
             self.popup = None;
         }
-        let mut sig_trig = lang.map(|l| self.lsp.trigger_chars(l, "signatureHelpProvider")).unwrap_or_default();
+        let mut sig_trig = lang
+            .map(|l| self.lsp.trigger_chars(l, "signatureHelpProvider"))
+            .unwrap_or_default();
         if sig_trig.is_empty() {
             sig_trig = vec!['(', ','];
         }
@@ -1080,10 +1266,13 @@ impl Editor {
     }
 
     pub(crate) fn trigger_signature(&mut self) {
-        let Some(lang) = self.cur_ready().filter(|l| self.lsp.cap(l, "signatureHelpProvider")) else { return };
+        let Some(lang) = self.cur_ready().filter(|l| self.lsp.cap(l, "signatureHelpProvider")) else {
+            return;
+        };
         self.lsp_sync(self.cur);
         let p = self.tdpp(lang);
-        self.lsp.request(lang, "textDocument/signatureHelp", p, Pending::Signature);
+        self.lsp
+            .request(lang, "textDocument/signatureHelp", p, Pending::Signature);
     }
 
     pub(crate) fn menu_key(&mut self, k: KeyEvent) {
@@ -1111,7 +1300,14 @@ impl Editor {
                     }
                     return;
                 }
-                KeyCode::Up | KeyCode::Down | KeyCode::Enter | KeyCode::Esc | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Tab | KeyCode::BackTab => {}
+                KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Enter
+                | KeyCode::Esc
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Tab
+                | KeyCode::BackTab => {}
                 _ => return,
             }
         }
@@ -1131,7 +1327,10 @@ impl Editor {
                     let c = c.to_lowercase().next().unwrap_or(c);
                     let name = |t: &str| t.trim_start_matches(|ch: char| !ch.is_alphanumeric()).to_lowercase();
                     let start = m.sel + 1;
-                    if let Some(i) = (0..n).map(|k| (start + k) % n).find(|&i| name(&m.items[i].0).starts_with(c)) {
+                    if let Some(i) = (0..n)
+                        .map(|k| (start + k) % n)
+                        .find(|&i| name(&m.items[i].0).starts_with(c))
+                    {
                         m.sel = i;
                     }
                     return self.menu_follow();
@@ -1176,7 +1375,9 @@ impl Editor {
 
     pub(crate) fn menu_choose(&mut self, idx: usize) {
         let Some(m) = self.menu.take() else { return };
-        let Some((_, act)) = m.items.into_iter().nth(idx) else { return };
+        let Some((_, act)) = m.items.into_iter().nth(idx) else {
+            return;
+        };
         match act {
             MenuAction::Code(lang, v) => self.run_action(lang, v, true),
             MenuAction::Jump(p, l, c, e) => self.jump_to(&p, l, c, e),
@@ -1205,8 +1406,11 @@ impl Editor {
     }
 
     pub(crate) fn folder_picker(&mut self, dir: PathBuf, from: Option<PathBuf>) {
-        self.to_normal();
-        let mut items: Vec<(String, MenuAction)> = vec![(t!("✓  Bu klasörü aç", "✓  Open this folder").into(), MenuAction::OpenDir(dir.clone()))];
+        self.back_to_normal();
+        let mut items: Vec<(String, MenuAction)> = vec![(
+            t!("✓  Bu klasörü aç", "✓  Open this folder").into(),
+            MenuAction::OpenDir(dir.clone()),
+        )];
         match dir.parent() {
             Some(p) => items.push(("↑  ..".into(), MenuAction::Dir(p.to_path_buf()))),
             None if cfg!(windows) => {
@@ -1238,8 +1442,22 @@ impl Editor {
         }
         let full = dir.display().to_string();
         let chars: Vec<char> = full.chars().collect();
-        let title = if chars.len() > 50 { format!("…{}", chars[chars.len() - 49..].iter().collect::<String>()) } else { full };
-        self.menu = Some(Menu { title, items, sel, scroll: 0, anchor: None, dir: Some(dir), filter: None, base: Vec::new(), custom_model: false });
+        let title = if chars.len() > 50 {
+            format!("…{}", chars[chars.len() - 49..].iter().collect::<String>())
+        } else {
+            full
+        };
+        self.menu = Some(Menu {
+            title,
+            items,
+            sel,
+            scroll: 0,
+            anchor: None,
+            dir: Some(dir),
+            filter: None,
+            base: Vec::new(),
+            custom_model: false,
+        });
         self.menu_follow();
     }
 
@@ -1247,23 +1465,60 @@ impl Editor {
         let visual = matches!(self.mode, Mode::Visual | Mode::VisualLine);
         let mut items: Vec<(String, MenuAction)> = Vec::new();
         if self.cur_ready().is_some() {
-            items.push((t!("Tanıma git          gd", "Go to definition    gd").into(), MenuAction::Cmd("def")));
-            items.push((t!("Referansları bul    gr", "Find references     gr").into(), MenuAction::Cmd("refs")));
-            items.push((t!("Kod eylemleri       ga", "Code actions        ga").into(), MenuAction::Cmd("actions")));
-            items.push((t!("Bilgi göster        K", "Show info           K").into(), MenuAction::Cmd("hover")));
-            items.push((t!("Yeniden adlandır    F2", "Rename              F2").into(), MenuAction::Cmd("rename")));
+            items.push((
+                t!("Tanıma git          gd", "Go to definition    gd").into(),
+                MenuAction::Cmd("def"),
+            ));
+            items.push((
+                t!("Referansları bul    gr", "Find references     gr").into(),
+                MenuAction::Cmd("refs"),
+            ));
+            items.push((
+                t!("Kod eylemleri       ga", "Code actions        ga").into(),
+                MenuAction::Cmd("actions"),
+            ));
+            items.push((
+                t!("Bilgi göster        K", "Show info           K").into(),
+                MenuAction::Cmd("hover"),
+            ));
+            items.push((
+                t!("Yeniden adlandır    F2", "Rename              F2").into(),
+                MenuAction::Cmd("rename"),
+            ));
             items.push((t!("Biçimlendir", "Format document").into(), MenuAction::Cmd("format")));
         }
         if visual {
-            items.push((t!("Kopyala             Ctrl+c", "Copy                Ctrl+c").into(), MenuAction::Cmd("copy")));
-            items.push((t!("Kes                 Ctrl+x", "Cut                 Ctrl+x").into(), MenuAction::Cmd("cut")));
+            items.push((
+                t!("Kopyala             Ctrl+c", "Copy                Ctrl+c").into(),
+                MenuAction::Cmd("copy"),
+            ));
+            items.push((
+                t!("Kes                 Ctrl+x", "Cut                 Ctrl+x").into(),
+                MenuAction::Cmd("cut"),
+            ));
         } else {
-            items.push((t!("Satırı kopyala      yy", "Copy line           yy").into(), MenuAction::Cmd("copy")));
+            items.push((
+                t!("Satırı kopyala      yy", "Copy line           yy").into(),
+                MenuAction::Cmd("copy"),
+            ));
         }
-        items.push((t!("Yapıştır            p", "Paste               p").into(), MenuAction::Cmd("paste")));
+        items.push((
+            t!("Yapıştır            p", "Paste               p").into(),
+            MenuAction::Cmd("paste"),
+        ));
         items.push((t!("Tümünü seç", "Select all").into(), MenuAction::Cmd("selectall")));
         self.ctx_pos = Some((x, y));
-        self.menu = Some(Menu { title: String::new(), items, sel: 0, scroll: 0, anchor: Some((x, y)), dir: None, filter: None, base: Vec::new(), custom_model: false });
+        self.menu = Some(Menu {
+            title: String::new(),
+            items,
+            sel: 0,
+            scroll: 0,
+            anchor: Some((x, y)),
+            dir: None,
+            filter: None,
+            base: Vec::new(),
+            custom_model: false,
+        });
     }
 
     fn context_cmd(&mut self, c: &str) {
@@ -1332,7 +1587,9 @@ impl Editor {
     }
 
     pub(crate) fn jump_back(&mut self) {
-        let Some((p, (x, y))) = self.jumps.pop() else { return self.info(t!("Geri dönülecek konum yok", "Jump list is empty")) };
+        let Some((p, (x, y))) = self.jumps.pop() else {
+            return self.info(t!("Geri dönülecek konum yok", "Jump list is empty"));
+        };
         self.open_path(&p);
         let b = self.buf_mut();
         b.cy = y.min(b.last());
@@ -1371,9 +1628,18 @@ impl Editor {
                 if self.lsp.servers.is_empty() {
                     let c: Vec<&str> = candidates(lang).iter().map(|c| c[0]).collect();
                     if c.is_empty() {
-                        self.info(tf!("{} için tanımlı dil sunucusu yok", "No language server configured for {}", lang));
+                        self.info(tf!(
+                            "{} için tanımlı dil sunucusu yok",
+                            "No language server configured for {}",
+                            lang
+                        ));
                     } else {
-                        self.info(tf!("Çalışan sunucu yok. {} için aranan: {}", "No server running. Looking for ({}): {}", lang, c.join(", ")));
+                        self.info(tf!(
+                            "Çalışan sunucu yok. {} için aranan: {}",
+                            "No server running. Looking for ({}): {}",
+                            lang,
+                            c.join(", ")
+                        ));
                     }
                     return;
                 }
@@ -1381,7 +1647,19 @@ impl Editor {
                     .lsp
                     .servers
                     .iter()
-                    .map(|(l, s)| format!("{}: {} [{}] {}", l, s.name, if s.ready { t!("hazır", "ready") } else { t!("başlıyor", "starting") }, s.root.display()))
+                    .map(|(l, s)| {
+                        format!(
+                            "{}: {} [{}] {}",
+                            l,
+                            s.name,
+                            if s.ready {
+                                t!("hazır", "ready")
+                            } else {
+                                t!("başlıyor", "starting")
+                            },
+                            s.root.display()
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("  |  ");
                 self.info(s);

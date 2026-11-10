@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2021"
 description = "A minimal, vim-like terminal IDE with mouse support"
 repository = "https://github.com/erenmentes/zetsu"
+license = "MIT"
 build = "build.rs"
 
 [dependencies]

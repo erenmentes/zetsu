@@ -49,10 +49,22 @@ pub struct Style {
 
 impl Style {
     pub const fn new() -> Self {
-        Style { fg: Color::Reset, bg: Color::Reset, bold: false, italic: false, ul: None }
+        Style {
+            fg: Color::Reset,
+            bg: Color::Reset,
+            bold: false,
+            italic: false,
+            ul: None,
+        }
     }
     pub const fn fg(c: Color) -> Self {
-        Style { fg: c, bg: Color::Reset, bold: false, italic: false, ul: None }
+        Style {
+            fg: c,
+            bg: Color::Reset,
+            bold: false,
+            italic: false,
+            ul: None,
+        }
     }
     pub const fn on(mut self, c: Color) -> Self {
         self.bg = c;
@@ -78,7 +90,10 @@ struct Cell {
     st: Style,
 }
 
-const BLANK: Cell = Cell { ch: ' ', st: Style::new() };
+const BLANK: Cell = Cell {
+    ch: ' ',
+    st: Style::new(),
+};
 const WIDE_TAIL: char = '\0';
 
 pub struct Screen {
@@ -90,7 +105,12 @@ pub struct Screen {
 
 impl Screen {
     pub fn new(w: u16, h: u16) -> Self {
-        Screen { w, h, cells: vec![BLANK; w as usize * h as usize], prev: Vec::new() }
+        Screen {
+            w,
+            h,
+            cells: vec![BLANK; w as usize * h as usize],
+            prev: Vec::new(),
+        }
     }
 
     pub fn resize(&mut self, w: u16, h: u16) {
@@ -170,7 +190,12 @@ impl Screen {
                 }
                 if cur != Some(cell.st) {
                     let st = cell.st;
-                    queue!(out, SetAttribute(Attribute::Reset), SetForegroundColor(fix(st.fg)), SetBackgroundColor(fix(st.bg)))?;
+                    queue!(
+                        out,
+                        SetAttribute(Attribute::Reset),
+                        SetForegroundColor(fix(st.fg)),
+                        SetBackgroundColor(fix(st.bg))
+                    )?;
                     if st.bold {
                         queue!(out, SetAttribute(Attribute::Bold))?;
                     }
@@ -188,7 +213,11 @@ impl Screen {
         queue!(out, SetAttribute(Attribute::Reset))?;
         self.prev.clone_from(&self.cells);
         if let Some((x, y)) = cursor {
-            let shape = if bar { SetCursorStyle::SteadyBar } else { SetCursorStyle::SteadyBlock };
+            let shape = if bar {
+                SetCursorStyle::SteadyBar
+            } else {
+                SetCursorStyle::SteadyBlock
+            };
             queue!(out, shape, cursor::MoveTo(x, y), cursor::Show)?;
         }
         queue!(out, terminal::EndSynchronizedUpdate)?;

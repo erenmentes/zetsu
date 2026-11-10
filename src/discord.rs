@@ -44,7 +44,12 @@ fn connect() -> Option<Box<dyn Pipe>> {
             .collect();
         dirs.push("/tmp".into());
         for d in dirs {
-            for sub in ["", "app/com.discordapp.Discord/", "snap.discord/", ".flatpak/dev.vencord.Vesktop/xdg-run/"] {
+            for sub in [
+                "",
+                "app/com.discordapp.Discord/",
+                "snap.discord/",
+                ".flatpak/dev.vencord.Vesktop/xdg-run/",
+            ] {
                 for i in 0..10 {
                     let p = format!("{}/{}discord-ipc-{}", d.trim_end_matches('/'), sub, i);
                     if let Ok(s) = UnixStream::connect(&p) {
@@ -83,7 +88,10 @@ fn handshake(client_id: &str) -> Result<Box<dyn Pipe>, String> {
     send(&mut *p, 0, &json!({ "v": 1, "client_id": client_id })).map_err(|e| e.to_string())?;
     match recv(&mut *p) {
         Ok((1, v)) if v["evt"] == "READY" => Ok(p),
-        Ok((_, v)) => Err(v["message"].as_str().unwrap_or(t!("bağlantı reddedildi", "connection refused")).to_string()),
+        Ok((_, v)) => Err(v["message"]
+            .as_str()
+            .unwrap_or(t!("bağlantı reddedildi", "connection refused"))
+            .to_string()),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -114,7 +122,10 @@ fn activity_cmd(nonce: u64, act: Option<(&str, &str, u64)>) -> Value {
 }
 
 fn worker(rx: std::sync::mpsc::Receiver<Msg>, mut client_id: String, mut enabled: bool, status: Arc<Mutex<String>>) {
-    let start = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let start = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let mut conn: Option<Box<dyn Pipe>> = None;
     let mut want: Option<(String, String)> = None;
     let mut sent: Option<(String, String)> = None;
@@ -148,11 +159,15 @@ fn worker(rx: std::sync::mpsc::Receiver<Msg>, mut client_id: String, mut enabled
                 nonce += 1;
                 let _ = send(&mut *p, 1, &activity_cmd(nonce, None));
             }
-            set_status(if client_id.is_empty() { t!("uygulama kimliği ayarlanmadı", "application ID not set") } else { t!("kapalı", "off") });
+            set_status(if client_id.is_empty() {
+                t!("uygulama kimliği ayarlanmadı", "application ID not set")
+            } else {
+                t!("kapalı", "off")
+            });
             continue;
         }
         if conn.is_none() {
-            if last_try.map_or(false, |t| t.elapsed() < Duration::from_secs(15)) {
+            if last_try.is_some_and(|t| t.elapsed() < Duration::from_secs(15)) {
                 continue;
             }
             last_try = Some(Instant::now());
@@ -203,7 +218,13 @@ impl Presence {
         let st = status.clone();
         let id = client_id.clone();
         thread::spawn(move || worker(rx, id, enabled, st));
-        Presence { tx, status, last: None, enabled, client_id }
+        Presence {
+            tx,
+            status,
+            last: None,
+            enabled,
+            client_id,
+        }
     }
 
     pub fn update(&mut self, details: String, state: String) {

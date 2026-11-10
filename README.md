@@ -211,3 +211,11 @@ src/
   i18n.rs        localization
   config.rs      settings file
 ```
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, coding guidelines and the pull request process.
+
+## License
+
+[MIT](LICENSE)

@@ -157,7 +157,7 @@ impl Buffer {
         let path = self
             .path
             .clone()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, t!("dosya adı yok", "no file name")))?;
+            .ok_or_else(|| io::Error::other(t!("dosya adı yok", "no file name")))?;
         let nl = if self.crlf { "\r\n" } else { "\n" };
         let mut out = String::new();
         if self.bom {
@@ -192,7 +192,11 @@ impl Buffer {
     }
 
     pub fn checkpoint(&mut self) {
-        self.undo.push(Snapshot { lines: self.lines.clone(), cx: self.cx, cy: self.cy });
+        self.undo.push(Snapshot {
+            lines: self.lines.clone(),
+            cx: self.cx,
+            cy: self.cy,
+        });
         if self.undo.len() > 1000 {
             self.undo.remove(0);
         }
@@ -210,7 +214,11 @@ impl Buffer {
     pub fn undo(&mut self) -> bool {
         match self.undo.pop() {
             Some(s) => {
-                let cur = Snapshot { lines: std::mem::replace(&mut self.lines, s.lines), cx: self.cx, cy: self.cy };
+                let cur = Snapshot {
+                    lines: std::mem::replace(&mut self.lines, s.lines),
+                    cx: self.cx,
+                    cy: self.cy,
+                };
                 self.redo.push(cur);
                 self.cx = s.cx;
                 self.cy = s.cy;
@@ -224,7 +232,11 @@ impl Buffer {
     pub fn redo(&mut self) -> bool {
         match self.redo.pop() {
             Some(s) => {
-                let cur = Snapshot { lines: std::mem::replace(&mut self.lines, s.lines), cx: self.cx, cy: self.cy };
+                let cur = Snapshot {
+                    lines: std::mem::replace(&mut self.lines, s.lines),
+                    cx: self.cx,
+                    cy: self.cy,
+                };
                 self.undo.push(cur);
                 self.cx = s.cx;
                 self.cy = s.cy;
