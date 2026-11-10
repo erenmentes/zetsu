@@ -3,8 +3,23 @@ use crate::flow::{self, BoxKind, Canvas, FnInfo, Graph, GridItem, Link, Role, BR
 use crate::render::{put_clip, text_w, BAR, BRIGHT, DIM, ERR, LOGO_GREEN, MACRO, POP, SEL, TYPE};
 use crate::screen::{Screen, Style};
 use crossterm::style::Color;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::mpsc::{channel, Receiver};
+use std::time::Instant;
+
+type AiBatch = Result<Vec<(u64, String)>, String>;
 
 const ZOOMS: [f32; 4] = [1.0, 0.5, 0.25, 0.125];
+const NOTE: Color = Color::Rgb {
+    r: 0xb4,
+    g: 0x9c,
+    b: 0xe0,
+};
+const AI_BATCH_FNS: usize = 24;
+const AI_BATCH_CHARS: usize = 24_000;
+const AI_FN_CHARS: usize = 4_000;
+const AI_CACHE_MAX: usize = 4_000;
 const EXEC_BG: Color = Color::Rgb {
     r: 0x2e,
     g: 0x3b,
@@ -39,6 +54,7 @@ pub enum FlowHit {
     ZoomIn,
     ZoomOut,
     Fit,
+    Ai,
     Crumb(Level),
 }
 
@@ -79,6 +95,13 @@ pub struct FlowView {
     program_root: Option<PathBuf>,
     pan: Option<(u16, u16, f32, f32)>,
     hits: RefCell<Vec<(u16, u16, u16, FlowHit)>>,
+    pub ai_on: bool,
+    notes: HashMap<u64, String>,
+    notes_loaded: bool,
+    ai_job: Option<Receiver<AiBatch>>,
+    ai_err: Option<(String, Instant)>,
+    ai_wait: Option<(u64, Instant)>,
+    caption: Vec<(String, Style)>,
 }
 
 impl FlowView {
@@ -115,6 +138,13 @@ impl FlowView {
             program_root: None,
             pan: None,
             hits: RefCell::new(Vec::new()),
+            ai_on: crate::config::load().get("flow_ai").is_some_and(|v| v == "on"),
+            notes: HashMap::new(),
+            notes_loaded: false,
+            ai_job: None,
+            ai_err: None,
+            ai_wait: None,
+            caption: Vec::new(),
         }
     }
 
@@ -123,7 +153,13 @@ impl FlowView {
     }
 
     fn view(&self, l: &Layout) -> (u16, u16, u16, u16) {
-        (l.flow_x + 1, l.top + 1, l.flow_w, l.text_h.saturating_sub(2))
+        let cap = (self.caption.len() as u16).min(l.text_h.saturating_sub(6));
+        (
+            l.flow_x + 1,
+            l.top + 1 + cap,
+            l.flow_w,
+            l.text_h.saturating_sub(2 + cap),
+        )
     }
 
     fn to_layout(&self, sx: f32, sy: f32) -> (f32, f32) {
@@ -177,6 +213,66 @@ impl FlowView {
         self.px = self.px.clamp(-lw / 2.0, (gw - lw / 2.0).max(0.0));
         self.py = self.py.clamp(-lh / 2.0, (gh - lh / 2.0).max(0.0));
     }
+}
+
+fn notes_path() -> Option<PathBuf> {
+    Some(crate::config::path()?.parent()?.join("flow_ai.json"))
+}
+
+fn fn_hash(f: &FnInfo, en: bool) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    en.hash(&mut h);
+    f.name.hash(&mut h);
+    f.code.hash(&mut h);
+    h.finish()
+}
+
+fn wrap(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut cut = false;
+    for word in text.split_whitespace() {
+        let need = text_w(&cur) + usize::from(!cur.is_empty()) + text_w(word);
+        if !cur.is_empty() && need > width {
+            lines.push(std::mem::take(&mut cur));
+            if lines.len() == max_lines {
+                cut = true;
+                break;
+            }
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if !cur.is_empty() && !cut {
+        lines.push(cur);
+    }
+    if cut {
+        if let Some(last) = lines.last_mut() {
+            *last = flow::trunc(&format!("{} …", last), width as i32);
+        }
+    }
+    lines
+}
+
+fn parse_notes(reply: &str, ids: &[(String, u64)]) -> Vec<(u64, String)> {
+    let start = reply.find('{');
+    let end = reply.rfind('}');
+    let obj: Option<serde_json::Value> = match (start, end) {
+        (Some(a), Some(b)) if b > a => serde_json::from_str(&reply[a..=b]).ok(),
+        _ => None,
+    };
+    ids.iter()
+        .map(|(id, h)| {
+            let t = obj
+                .as_ref()
+                .and_then(|o| o[id.as_str()].as_str())
+                .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+                .unwrap_or_default();
+            (*h, t.trim_matches(|c| c == '"' || c == '`').to_string())
+        })
+        .collect()
 }
 
 fn source_files(root: &Path, out: &mut Vec<PathBuf>, depth: usize) {
@@ -393,6 +489,12 @@ impl Editor {
                 self.flow.func = Some(0);
             }
         }
+        let cap = self.flow_caption(vw as usize);
+        if cap.len() != self.flow.caption.len() && (self.flow.caption.is_empty() || cap.is_empty()) {
+            self.flow.recenter = true;
+        }
+        self.flow.caption = cap;
+        let (_, _, vw, vh) = self.flow.view(&self.layout());
         let key = GraphKey {
             level: self.flow.level,
             path: self.flow.path.clone(),
@@ -451,6 +553,197 @@ impl Editor {
         self.flow.active = active;
     }
 
+    pub(crate) fn flow_ai_toggle(&mut self) {
+        self.flow.ai_on = !self.flow.ai_on;
+        self.flow.ai_err = None;
+        self.flow.ai_wait = None;
+        let _ = crate::config::set("flow_ai", if self.flow.ai_on { "on" } else { "off" });
+        self.flow.key = None;
+        if self.flow.ai_on && self.ai.cfg().is_none() {
+            self.info(t!(
+                "AI açıklamaları için önce AI panelinden (Ctrl+L) bir model seçin",
+                "Pick a model in the AI panel (Ctrl+L) to get explanations"
+            ));
+        }
+    }
+
+    fn flow_load_notes(&mut self) {
+        if self.flow.notes_loaded {
+            return;
+        }
+        self.flow.notes_loaded = true;
+        let Some(p) = notes_path() else { return };
+        let Ok(s) = std::fs::read_to_string(p) else { return };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) else {
+            return;
+        };
+        if let Some(o) = v.as_object() {
+            for (k, t) in o {
+                if let (Ok(h), Some(t)) = (u64::from_str_radix(k, 16), t.as_str()) {
+                    self.flow.notes.insert(h, t.to_string());
+                }
+            }
+        }
+    }
+
+    fn flow_save_notes(&mut self) {
+        if self.flow.notes.len() > AI_CACHE_MAX {
+            let extra = self.flow.notes.len() - AI_CACHE_MAX;
+            let drop: Vec<u64> = self.flow.notes.keys().take(extra).copied().collect();
+            for k in drop {
+                self.flow.notes.remove(&k);
+            }
+        }
+        let Some(p) = notes_path() else { return };
+        let map: serde_json::Map<String, serde_json::Value> = self
+            .flow
+            .notes
+            .iter()
+            .map(|(k, v)| (format!("{:016x}", k), serde_json::Value::String(v.clone())))
+            .collect();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(p, serde_json::Value::Object(map).to_string());
+    }
+
+    fn flow_caption(&self, width: usize) -> Vec<(String, Style)> {
+        if !self.flow.ai_on || self.flow.level != Level::Func || width < 12 {
+            return Vec::new();
+        }
+        let Some(f) = self.flow.func.and_then(|i| self.flow.fns.get(i)) else {
+            return Vec::new();
+        };
+        let w = width.saturating_sub(2);
+        let note = self.flow.notes.get(&fn_hash(f, crate::i18n::is_en()));
+        let (text, st) = match note {
+            Some(n) if !n.is_empty() => (format!("✦ {}", n), Style::fg(NOTE).italic()),
+            Some(_) => return Vec::new(),
+            None => {
+                if self.ai.cfg().is_none() {
+                    (
+                        t!(
+                            "✦ AI açıklaması için Ctrl+L ile bir model seçin",
+                            "✦ Pick a model with Ctrl+L to get explanations"
+                        )
+                        .to_string(),
+                        Style::fg(DIM).italic(),
+                    )
+                } else if let Some((e, _)) = &self.flow.ai_err {
+                    (format!("✦ {}", e), Style::fg(ERR))
+                } else {
+                    (
+                        t!("✦ açıklanıyor…", "✦ explaining…").to_string(),
+                        Style::fg(DIM).italic(),
+                    )
+                }
+            }
+        };
+        wrap(&text, w, 3).into_iter().map(|l| (l, st)).collect()
+    }
+
+    pub fn flow_tick(&mut self) -> bool {
+        if !self.flow.visible || !self.flow.ai_on {
+            return false;
+        }
+        self.flow_load_notes();
+        if let Some(rx) = &self.flow.ai_job {
+            return match rx.try_recv() {
+                Ok(Ok(v)) => {
+                    self.flow.ai_job = None;
+                    self.flow.ai_err = None;
+                    for (h, t) in v {
+                        self.flow.notes.insert(h, t);
+                    }
+                    self.flow_save_notes();
+                    self.flow.key = None;
+                    true
+                }
+                Ok(Err(e)) => {
+                    self.flow.ai_job = None;
+                    let e = flow::trunc(&e.replace('\n', " "), 160);
+                    self.flow.ai_err = Some((tf!("AI hatası: {}", "AI error: {}", e), Instant::now()));
+                    true
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.flow.ai_job = None;
+                    true
+                }
+                Err(_) => false,
+            };
+        }
+        if self.flow.level == Level::Program || self.flow.fns.is_empty() {
+            return false;
+        }
+        if self
+            .flow
+            .ai_err
+            .as_ref()
+            .is_some_and(|(_, t)| t.elapsed().as_secs() < 30)
+        {
+            return false;
+        }
+        let Some(cfg) = self.ai.cfg() else { return false };
+        let en = crate::i18n::is_en();
+        let missing: Vec<usize> = (0..self.flow.fns.len())
+            .filter(|i| !self.flow.notes.contains_key(&fn_hash(&self.flow.fns[*i], en)))
+            .collect();
+        if missing.is_empty() {
+            self.flow.ai_wait = None;
+            return false;
+        }
+        let rev = self.flow.rev;
+        match self.flow.ai_wait {
+            Some((r, t)) if r == rev => {
+                if t.elapsed().as_millis() < 1200 {
+                    return false;
+                }
+            }
+            _ => {
+                self.flow.ai_wait = Some((rev, Instant::now()));
+                return false;
+            }
+        }
+        let cur = self.flow.func;
+        let mut order = missing;
+        order.sort_by_key(|i| (Some(*i) != cur, *i));
+        let mut ids = Vec::new();
+        let mut body = String::new();
+        let file = self
+            .flow
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        body.push_str(&format!("File: {}\n\n", file));
+        for i in order {
+            let f = &self.flow.fns[i];
+            let code: String = f.code.chars().take(AI_FN_CHARS).collect();
+            if !ids.is_empty() && (ids.len() >= AI_BATCH_FNS || body.len() + code.len() > AI_BATCH_CHARS) {
+                break;
+            }
+            let id = format!("f{}", ids.len() + 1);
+            body.push_str(&format!("### {} — {}\n```\n{}\n```\n\n", id, f.name, code));
+            ids.push((id, fn_hash(f, en)));
+        }
+        let lang = if en { "English" } else { "Turkish" };
+        let system = format!(
+            "You explain functions for a code flowchart viewer. For each function write exactly one short, plain sentence \
+             (at most 18 words) saying what it does and what it returns or changes. Do not repeat the function name, \
+             do not use markdown or code. Write in {}. Reply with only a JSON object that maps each id (f1, f2, ...) \
+             to its sentence.",
+            lang
+        );
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let r = crate::ai::complete(&cfg, &system, &body).map(|reply| parse_notes(&reply, &ids));
+            let _ = tx.send(r);
+        });
+        self.flow.ai_job = Some(rx);
+        true
+    }
+
     fn flow_build(&self, vw: i32) -> Graph {
         match self.flow.level {
             Level::Func => match self.flow.func.and_then(|i| self.flow.fns.get(i)) {
@@ -471,6 +764,15 @@ impl Editor {
                             f.end - f.start + 1,
                             f.branches
                         ),
+                        note: if self.flow.ai_on {
+                            self.flow
+                                .notes
+                                .get(&fn_hash(f, crate::i18n::is_en()))
+                                .cloned()
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        },
                         lines: (f.start, f.end),
                         link: Link::Func(i),
                         kind: BoxKind::Func,
@@ -487,6 +789,7 @@ impl Editor {
                     .map(|(p, n)| GridItem {
                         label: p.strip_prefix(&root).unwrap_or(p).display().to_string(),
                         sub: tf!("{} fonksiyon", "{} functions", n),
+                        note: String::new(),
                         lines: (usize::MAX, 0),
                         link: Link::File(p.clone()),
                         kind: BoxKind::File,
@@ -780,6 +1083,7 @@ impl Editor {
                     .map(|h| h.3);
                 if let Some(h) = hit {
                     match h {
+                        FlowHit::Ai => self.flow_ai_toggle(),
                         FlowHit::Close => self.flow_close(),
                         FlowHit::ZoomIn => self.flow_zoom(1, vw as f32 / 2.0, vh as f32 / 2.0),
                         FlowHit::ZoomOut => self.flow_zoom(-1, vw as f32 / 2.0, vh as f32 / 2.0),
@@ -851,6 +1155,7 @@ impl Editor {
             (Role::Label, _) => Style::fg(DIM).italic(),
             (Role::Border, Some(b)) => Style::fg(kind_color(b.kind)),
             (Role::Sub, _) => Style::fg(DIM),
+            (Role::Note, _) => Style::fg(NOTE).italic(),
             (Role::Text, Some(b)) if b.kind == BoxKind::Stmt => Style::fg(BRIGHT),
             (Role::Text, Some(b)) => Style::fg(kind_color(b.kind)),
             _ => Style::new(),
@@ -911,7 +1216,7 @@ impl Editor {
             }
             v
         };
-        let tools_w: u16 = 13;
+        let tools_w: u16 = 17;
         let limit = right.saturating_sub(tools_w + 1);
         for (i, (name, lv)) in crumbs.iter().enumerate() {
             if x >= limit {
@@ -932,6 +1237,16 @@ impl Editor {
             x = nx;
         }
         let mut tx = right.saturating_sub(tools_w);
+        let ai_st = if self.flow.ai_job.is_some() {
+            Style::fg(NOTE).on(BAR).italic()
+        } else if self.flow.ai_on {
+            Style::fg(NOTE).on(BAR).bold()
+        } else {
+            Style::fg(DIM).on(BAR)
+        };
+        s.put(tx + 1, l.top, if self.flow.ai_on { "✦AI" } else { "·AI" }, ai_st);
+        hits.push((l.top, tx, tx + 4, FlowHit::Ai));
+        tx += 4;
         for (lab, h) in [
             ("−", FlowHit::ZoomOut),
             ("+", FlowHit::ZoomIn),
@@ -941,6 +1256,14 @@ impl Editor {
             s.put(tx + 1, l.top, lab, Style::fg(BRIGHT).on(BAR));
             hits.push((l.top, tx, tx + 3, h));
             tx += 3;
+        }
+        for (i, (line, st)) in self.flow.caption.iter().enumerate() {
+            let y = l.top + 1 + i as u16;
+            if y >= vy {
+                break;
+            }
+            s.fill(vx, y, vw, Style::new().on(POP));
+            put_clip(s, vx + 1, y, line, st.on(POP), vw.saturating_sub(2) as usize);
         }
         let fy = l.top + l.text_h.saturating_sub(1);
         s.fill(vx, fy, vw, Style::new().on(BAR));
@@ -1006,6 +1329,7 @@ impl Editor {
         let info = match info_box.and_then(|i| self.flow.graph.boxes.get(i)) {
             Some(b) => match &b.link {
                 Link::File(_) => format!("{}  ·  {}", b.label, b.sub),
+                Link::Func(_) if !b.note.is_empty() => format!("{}  {}", b.label, b.note),
                 Link::Func(_) => format!("{}  ·  {}:{}", b.label, t!("satır", "line"), b.lines.0 + 1),
                 Link::None => {
                     let act = self.flow.active_line.filter(|l| b.contains_line(*l));
@@ -1099,5 +1423,30 @@ impl Editor {
 impl FlowView {
     fn focus_is(&self, f: Focus) -> bool {
         f == Focus::Flow
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notes_from_fenced_reply() {
+        let reply = "Sure:\n```json\n{\"f1\": \"Adds the numbers.\", \"f2\": \"  Picks   a label \"}\n```";
+        let ids = vec![("f1".to_string(), 1u64), ("f2".to_string(), 2), ("f3".to_string(), 3)];
+        let n = parse_notes(reply, &ids);
+        assert_eq!(n[0], (1, "Adds the numbers.".to_string()));
+        assert_eq!(n[1], (2, "Picks a label".to_string()));
+        assert_eq!(n[2], (3, String::new()));
+        assert!(parse_notes("no json", &ids).iter().all(|x| x.1.is_empty()));
+    }
+
+    #[test]
+    fn caption_wrap() {
+        let w = wrap("one two three four five six seven eight nine ten", 12, 2);
+        assert_eq!(w.len(), 2);
+        assert!(w.iter().all(|l| text_w(l) <= 12));
+        assert!(w[1].ends_with('…'));
+        assert_eq!(wrap("short", 20, 3), vec!["short".to_string()]);
     }
 }

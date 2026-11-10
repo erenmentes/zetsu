@@ -81,6 +81,9 @@ fn run(ed: &mut Editor) -> io::Result<()> {
         if ed.debug_tick() {
             redraw = true;
         }
+        if ed.flow_tick() {
+            redraw = true;
+        }
         ed.presence_tick();
     }
 }

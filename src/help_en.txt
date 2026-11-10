@@ -99,6 +99,8 @@ FLOWCHART
   right click / b toggle a breakpoint on the node
   Tab / n, N      select next / previous node        Enter  open selected
   0 / f           fit      c  center the active node      u  level up
+  AI (header)     toggle AI explanations: a one-sentence summary per function,
+                  in the IDE language, using the model chosen in the AI panel
   :flow [fn|file|program|fit|off]
   Supported: Rust, Python, Go, C, C++, JavaScript, TypeScript
 

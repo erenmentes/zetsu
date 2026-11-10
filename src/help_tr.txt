@@ -99,6 +99,8 @@ AKIŞ ŞEMASI
   sağ tık / b     düğüme breakpoint koy / kaldır
   Tab / n, N      sonraki / önceki düğümü seç          Enter  seçileni aç
   0 / f           sığdır   c  aktif düğümü ortala   u  bir üst seviye
+  AI (başlıkta)   AI açıklamalarını aç / kapat: her fonksiyon için IDE dilinde
+                  tek cümlelik özet, AI panelinde seçili model kullanılır
   :flow [fn|file|program|fit|off]
   Desteklenen: Rust, Python, Go, C, C++, JavaScript, TypeScript
 

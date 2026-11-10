@@ -14,7 +14,7 @@
 - **Language Server Protocol** — completion (including auto-imports and snippet expansion), diagnostics, hover, go to definition, references, code actions with resolve support, signature help, rename and document formatting. Servers are discovered on `PATH` and started on demand.
 - **Mouse** — click to place the cursor, drag to select, double/triple click for word/line selection, scroll, tab switching, context menu, Ctrl+click to jump to a definition, resizable file tree.
 - **Debugger (DAP)** — breakpoints, stepping, variables tree, call stack, watches and a debug console. Works with CodeLLDB, lldb-dap and gdb for Rust/C/C++, debugpy for Python and Delve for Go. Missing adapters are downloaded on first use, Rust projects are built automatically and `.vscode/launch.json` is supported.
-- **Live flowchart** — control-flow diagram of the function under the cursor, generated with tree-sitter. Follows the debugger as you step, marks breakpoints, and zooms semantically from a single function out to the whole file and project, with a braille minimap at low zoom levels.
+- **Live flowchart** — control-flow diagram of the function under the cursor, generated with tree-sitter. Follows the debugger as you step, marks breakpoints, and zooms semantically from a single function out to the whole file and project, with a braille minimap at low zoom levels. Optional AI summaries explain what each function does.
 - **Find and replace** — inline find bar with live highlighting, match counter, case/whole-word/regex options, capture-group replacement and single-step undo for replace-all.
 - **Navigation** — document symbols, workspace symbol search, references, jump list.
 - **Workspace** — file tree, tabs, folder picker, recent workspaces, shell command integration (`:!cargo build`).
@@ -131,6 +131,7 @@ Press `:help` inside the editor for the full keymap.
 | click / right-click | go to line / toggle breakpoint |
 | `Tab` / `Enter` | select next node / open it |
 | `0` | fit to panel |
+| `AI` button | toggle AI function summaries |
 
 ### AI panel
 
@@ -179,6 +180,12 @@ CodeLLDB gives the best Rust experience: it pretty-prints `Vec`, `String`, `Hash
 The node containing the cursor is highlighted. While the debugger is paused the panel follows the execution line instead: it switches to the function being executed, highlights the current node and scrolls it into view. Breakpoints are shown on their nodes; right-click a node to toggle one, click it to jump to its line.
 
 Zoom is semantic. At 100% nodes are drawn with box characters; zooming out switches to a braille rendering at 50%, 25% and 12.5% that shows the shape of large functions. Zooming out further shows every function in the file with its size and branch count, then every source file in the project. Zooming in, or clicking an item, goes back down. Use `+`/`-`, `Alt`+wheel (`Ctrl`+wheel where the terminal forwards it) or the buttons in the panel header; the breadcrumb in the header is clickable.
+
+### AI explanations
+
+The **AI** button in the top-right corner of the flowchart panel turns on short explanations. Each function gets a one-sentence summary of what it does and what it returns or changes: shown under the header in the function view and inside every function box in the file view (hover a box for the full sentence). Summaries are written in the current UI language (`:lang`).
+
+Explanations use the provider and model selected in the AI panel. All functions of a file are explained in a single request, sent once the file has been idle for about a second. Results are cached in `flow_ai.json` next to the config file, keyed by each function's source, so only new or edited functions are sent again. The setting is off by default and remembered (`flow_ai` in the config file).
 
 ## AI assistant
 

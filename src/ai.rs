@@ -337,6 +337,95 @@ fn run_chat(req: ChatReq, id: u64, tx: Sender<AiEvent>, cancel: Arc<AtomicBool>)
     };
 }
 
+#[derive(Clone)]
+pub struct AiCfg {
+    pub provider: Provider,
+    pub base: String,
+    pub key: String,
+    pub model: String,
+}
+
+pub fn complete(c: &AiCfg, system: &str, user: &str) -> Result<String, String> {
+    let base = c.base.trim_end_matches('/');
+    let v: Value = match c.provider {
+        Provider::OpenAI => {
+            let body = json!({
+                "model": c.model,
+                "messages": [
+                    { "role": "system", "content": system },
+                    { "role": "user", "content": user },
+                ],
+            });
+            let mut req = agent()
+                .post(&format!("{}/chat/completions", base))
+                .set("Content-Type", "application/json")
+                .set("X-Title", "zetsu");
+            if !c.key.is_empty() {
+                req = req.set("Authorization", &format!("Bearer {}", c.key));
+            }
+            let s = req
+                .send_string(&body.to_string())
+                .map_err(http_error)?
+                .into_string()
+                .map_err(|e| e.to_string())?;
+            let v: Value = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+            v["choices"][0]["message"]["content"].clone()
+        }
+        Provider::Anthropic => {
+            let body = json!({
+                "model": c.model,
+                "max_tokens": 4096,
+                "system": system,
+                "messages": [{ "role": "user", "content": user }],
+            });
+            let s = agent()
+                .post(&format!("{}/messages", base))
+                .set("Content-Type", "application/json")
+                .set("x-api-key", &c.key)
+                .set("anthropic-version", "2023-06-01")
+                .send_string(&body.to_string())
+                .map_err(http_error)?
+                .into_string()
+                .map_err(|e| e.to_string())?;
+            let v: Value = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+            let text: String = v["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|b| b["text"].as_str())
+                .collect();
+            Value::String(text)
+        }
+        Provider::Gemini => {
+            let body = json!({
+                "contents": [{ "role": "user", "parts": [{ "text": user }] }],
+                "systemInstruction": { "parts": [{ "text": system }] },
+            });
+            let model = c.model.trim_start_matches("models/");
+            let s = agent()
+                .post(&format!("{}/models/{}:generateContent", base, model))
+                .set("Content-Type", "application/json")
+                .set("x-goog-api-key", &c.key)
+                .send_string(&body.to_string())
+                .map_err(http_error)?
+                .into_string()
+                .map_err(|e| e.to_string())?;
+            let v: Value = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+            let text: String = v["candidates"][0]["content"]["parts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| p["text"].as_str())
+                .collect();
+            Value::String(text)
+        }
+    };
+    match v.as_str() {
+        Some(t) if !t.trim().is_empty() => Ok(t.to_string()),
+        _ => Err("empty response".into()),
+    }
+}
+
 fn run_models(provider: Provider, base: String, key: String, tx: Sender<AiEvent>) {
     let base = base.trim_end_matches('/').to_string();
     let result: Result<Vec<String>, String> = (|| {
@@ -455,6 +544,19 @@ impl Ai {
             .filter_map(|k| std::env::var(k).ok())
             .find(|k| !k.is_empty())
             .unwrap_or_default()
+    }
+
+    pub fn cfg(&self) -> Option<AiCfg> {
+        let key = self.key();
+        if self.model.is_empty() || (self.needs_key() && key.is_empty()) {
+            return None;
+        }
+        Some(AiCfg {
+            provider: self.provider,
+            base: self.base_url.clone(),
+            key,
+            model: self.model.clone(),
+        })
     }
 
     pub fn needs_key(&self) -> bool {

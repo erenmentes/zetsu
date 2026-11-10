@@ -91,6 +91,7 @@ pub enum Flow {
 #[derive(Clone, Debug)]
 pub struct FnInfo {
     pub name: String,
+    pub code: String,
     pub start: usize,
     pub end: usize,
     pub flow: Flow,
@@ -589,6 +590,7 @@ impl<'a> P<'a> {
                 let flow = self.body(n.child_by_field_name("body"));
                 out.push(FnInfo {
                     name: self.fn_name(n),
+                    code: self.text(n).to_string(),
                     start: n.start_position().row,
                     end: n.end_position().row,
                     branches: branches(&flow),
@@ -690,6 +692,7 @@ pub struct NodeBox {
     pub kind: BoxKind,
     pub label: String,
     pub sub: String,
+    pub note: String,
     pub lines: (usize, usize),
     pub items: Vec<Item>,
     pub link: Link,
@@ -834,6 +837,7 @@ fn node(kind: BoxKind, label: String, lines: (usize, usize), items: Vec<Item>) -
         kind,
         label,
         sub: String::new(),
+        note: String::new(),
         lines,
         items,
         link: Link::None,
@@ -1060,13 +1064,16 @@ pub fn function_graph(f: &FnInfo) -> Graph {
 pub struct GridItem {
     pub label: String,
     pub sub: String,
+    pub note: String,
     pub lines: (usize, usize),
     pub link: Link,
     pub kind: BoxKind,
 }
 
 pub fn grid(items: Vec<GridItem>, view_w: i32) -> Graph {
-    let bw = 26;
+    let notes = items.iter().any(|i| !i.note.is_empty());
+    let bw = if notes { 34 } else { 26 };
+    let bh = if notes { 5 } else { 4 };
     let cols = ((view_w - 2) / (bw + 2)).max(1);
     let mut g = Graph::default();
     for (i, it) in items.into_iter().enumerate() {
@@ -1074,12 +1081,13 @@ pub fn grid(items: Vec<GridItem>, view_w: i32) -> Graph {
         let r = i as i32 / cols;
         g.boxes.push(NodeBox {
             x: 1 + c * (bw + 2),
-            y: 1 + r * 5,
+            y: 1 + r * (bh + 1),
             w: bw,
-            h: 4,
+            h: bh,
             kind: it.kind,
             label: it.label,
             sub: it.sub,
+            note: it.note,
             lines: it.lines,
             items: Vec::new(),
             link: it.link,
@@ -1099,6 +1107,7 @@ pub enum Role {
     Text,
     Sub,
     Label,
+    Note,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1280,6 +1289,9 @@ pub fn rasterize(g: &Graph, active: Option<usize>) -> Canvas {
         if b.h >= 4 {
             cv.text(x0 + 2, y0 + 1, &trunc(main, inner), Role::Text, id);
             cv.text(x0 + 2, y0 + 2, &trunc(&b.sub, inner), Role::Sub, id);
+            if b.h >= 5 && !b.note.is_empty() {
+                cv.text(x0 + 2, y0 + 3, &trunc(&b.note, inner), Role::Note, id);
+            }
         } else if !b.sub.is_empty() && act.is_none() {
             let sw = dispw(&b.sub);
             let t = trunc(main, inner - sw - 1);
