@@ -45,6 +45,7 @@ pub enum MenuAction {
     Model(String),
     Chat(String),
     AiProvider(crate::ai::Provider),
+    Git(String),
 }
 
 pub struct Menu {
@@ -1397,6 +1398,7 @@ impl Editor {
             MenuAction::Code(lang, v) => self.run_action(lang, v, true),
             MenuAction::Jump(p, l, c, e) => self.jump_to(&p, l, c, e),
             MenuAction::Cmd(c) => self.context_cmd(c),
+            MenuAction::Git(a) => self.git_menu_action(&a),
             MenuAction::Dir(p) => self.folder_picker(p, None),
             MenuAction::Model(name) => {
                 self.ai.set_model(&name);
@@ -1479,7 +1481,7 @@ impl Editor {
 
     pub(crate) fn open_context_menu(&mut self, x: u16, y: u16) {
         let visual = matches!(self.mode, Mode::Visual | Mode::VisualLine);
-        let mut items: Vec<(String, MenuAction)> = Vec::new();
+        let mut items: Vec<(String, MenuAction)> = self.git_context_items();
         if self.cur_ready().is_some() {
             items.push((
                 t!("Tanıma git          gd", "Go to definition    gd").into(),
@@ -1551,6 +1553,9 @@ impl Editor {
     }
 
     fn context_cmd(&mut self, c: &str) {
+        if self.git_context_cmd(c) {
+            return;
+        }
         let visual = matches!(self.mode, Mode::Visual | Mode::VisualLine);
         match c {
             "def" => self.lsp_definition(),

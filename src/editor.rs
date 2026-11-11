@@ -19,6 +19,8 @@ mod debug_ui;
 mod find;
 #[path = "flow_ui.rs"]
 mod flow_ui;
+#[path = "git_ui.rs"]
+pub(crate) mod git_ui;
 pub use find::{FindBar, Matcher};
 #[path = "ide.rs"]
 mod ide;
@@ -152,6 +154,7 @@ pub struct Editor {
     ws_sym_id: Option<i64>,
     pub dbg: debug_ui::Debugger,
     pub flow: flow_ui::FlowView,
+    pub git: git_ui::GitState,
     pub dbg_hits: RefCell<Vec<(u16, u16, u16, debug_ui::DbgHit)>>,
     pub dbg_cursor: Cell<Option<(u16, u16)>>,
     pub splash_hits: RefCell<Vec<(u16, usize)>>,
@@ -280,7 +283,8 @@ impl Editor {
                 let id = env::var("ZETSU_DISCORD_ID")
                     .ok()
                     .or_else(|| cfg.get("discord_client_id").cloned())
-                    .unwrap_or_default();
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| crate::discord::DEFAULT_CLIENT_ID.to_string());
                 let on = cfg.get("discord").is_none_or(|v| v != "off");
                 Presence::start(id, on)
             },
@@ -298,6 +302,7 @@ impl Editor {
             ws_sym_id: None,
             dbg: debug_ui::Debugger::new(),
             flow: flow_ui::FlowView::new(),
+            git: git_ui::GitState::new(),
             dbg_hits: RefCell::new(Vec::new()),
             dbg_cursor: Cell::new(None),
         };
@@ -536,7 +541,9 @@ impl Editor {
                 self.after(0);
             }
             Event::Paste(s) => {
-                self.on_paste(&s);
+                if !self.git_paste(&s) {
+                    self.on_paste(&s);
+                }
                 self.after(3);
             }
             Event::Resize(w, h) => {
@@ -596,6 +603,9 @@ impl Editor {
         }
         if is_ctrl(&k) && k.code == KeyCode::Char('g') {
             return self.flow_toggle();
+        }
+        if k.modifiers.contains(KeyModifiers::ALT) && matches!(k.code, KeyCode::Char('g') | KeyCode::Char('G')) {
+            return self.git_toggle();
         }
         if let KeyCode::F(n) = k.code {
             let shift = k.modifiers.contains(KeyModifiers::SHIFT);
@@ -819,6 +829,9 @@ impl Editor {
     }
 
     fn tree_key(&mut self, k: KeyEvent) {
+        if self.git.tab && self.git.root.is_some() {
+            return self.git_key(k);
+        }
         let n = self.tree.nodes.len();
         match k.code {
             KeyCode::Char('j') | KeyCode::Down => {
@@ -908,6 +921,14 @@ impl Editor {
     }
 
     fn normal_key(&mut self, k: KeyEvent) {
+        if k.code == KeyCode::Enter
+            && k.modifiers.is_empty()
+            && self.prefix.is_none()
+            && self.op.is_none()
+            && self.git_diff_jump()
+        {
+            return;
+        }
         if is_ctrl(&k) {
             if let KeyCode::Char(c) = k.code {
                 match c {
@@ -1060,8 +1081,10 @@ impl Editor {
             },
             ']' | '[' => {
                 self.reset_pending();
-                if c == 'd' {
-                    self.goto_diag(p == ']');
+                match c {
+                    'd' => self.goto_diag(p == ']'),
+                    'c' | 'x' => self.git_next(p == ']'),
+                    _ => {}
                 }
             }
             'f' | 'F' | 't' | 'T' => self.motion_or_op(p, Some(c)),
@@ -2166,6 +2189,10 @@ impl Editor {
             "discord" => self.discord_command(arg),
             "debug" | "dbg" => self.debug_command(arg),
             "flow" => self.flow_command(arg),
+            "git" | "g" => self.git_command(arg),
+            "branch" => self.git_branch_cmd(arg),
+            "hunk" => self.git_hunk_cmd(arg.trim()),
+            "conflict" => self.git_conflict_cmd(arg.trim()),
             "install" => self.install_command(arg),
             "uninstall" => self.uninstall_command(arg),
             "break" | "breakpoint" => {
@@ -2236,6 +2263,16 @@ impl Editor {
                     t!("Discord durumu kapalı", "Discord presence off")
                 });
             }
+            "id" if val == "default" || val == "reset" => {
+                self.presence.set_id(crate::discord::DEFAULT_CLIENT_ID.to_string());
+                match crate::config::set("discord_client_id", "") {
+                    Ok(()) => self.info(t!(
+                        "Discord: varsayılan Zetsu IDE uygulaması kullanılıyor",
+                        "Discord: using the default Zetsu IDE application"
+                    )),
+                    Err(e) => self.error(tf!("Ayar yazılamadı: {}", "Could not write config: {}", e)),
+                }
+            }
             "id" if !val.is_empty() => {
                 if !val.chars().all(|c| c.is_ascii_digit()) {
                     return self.error(t!(
@@ -2259,14 +2296,7 @@ impl Editor {
                 } else {
                     t!("kapalı", "off")
                 };
-                if self.presence.client_id.is_empty() {
-                    self.info(t!(
-                        "Discord: kimlik yok — :discord id <APPLICATION_ID> ile ayarlayın",
-                        "Discord: no ID — set it with :discord id <APPLICATION_ID>"
-                    ));
-                } else {
-                    self.info(format!("Discord: {} ({})", on, st));
-                }
+                self.info(format!("Discord: {} ({})", on, st));
             }
         }
     }
@@ -2362,6 +2392,7 @@ impl Editor {
                 self.info(tf!("\"{}\" {}S {}B yazıldı", "\"{}\" {}L {}B written", name, n, bytes));
                 self.tree.refresh();
                 self.lsp_did_save();
+                self.git.status_now_set();
                 true
             }
             Err(e) => {
@@ -2723,6 +2754,9 @@ impl Editor {
         if self.flow_mouse(&m, &l) {
             return;
         }
+        if self.git_sidebar_mouse(&m, &l) {
+            return;
+        }
         let (x, y) = (m.column, m.row);
         let in_text_rows = y >= l.top && y < l.top + l.text_h;
         let over_tree = self.tree.visible && x < l.tree_w && in_text_rows;
@@ -2757,7 +2791,19 @@ impl Editor {
                 let ly = self.buf().scroll_y + (y - l.top) as usize;
                 let on_find = self.find.is_some() && self.find_click(x, y);
                 if !on_find && ly < self.buf().lines.len() {
-                    self.toggle_breakpoint(ly);
+                    if x + 1 == l.text_x && self.git_signs(ly, 1)[0] != 0 {
+                        self.focus = Focus::Editor;
+                        if self.mode == Mode::Insert {
+                            self.leave_insert();
+                        }
+                        let b = self.buf_mut();
+                        b.cy = ly;
+                        b.cx = b.first_nb(ly);
+                        b.sync_want();
+                        self.git_gutter_menu(x, y);
+                    } else {
+                        self.toggle_breakpoint(ly);
+                    }
                 }
                 return;
             }
@@ -2851,6 +2897,10 @@ impl Editor {
                         }
                         None => {}
                     }
+                    return;
+                }
+                if x >= l.ed_x && x < l.ed_r && !self.is_splash() && self.git_editor_click(x, y) {
+                    self.focus = Focus::Editor;
                     return;
                 }
                 if x >= l.ed_x && x < l.ed_r {

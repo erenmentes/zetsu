@@ -145,7 +145,7 @@ fn free_port() -> Option<u16> {
 }
 
 #[cfg(unix)]
-fn detach(c: &mut Command) {
+pub(crate) fn detach(c: &mut Command) {
     use std::os::unix::process::CommandExt;
     unsafe {
         c.pre_exec(|| {
@@ -156,7 +156,7 @@ fn detach(c: &mut Command) {
 }
 
 #[cfg(windows)]
-fn detach(c: &mut Command) {
+pub(crate) fn detach(c: &mut Command) {
     use std::os::windows::process::CommandExt;
     c.creation_flags(0x0800_0000);
 }

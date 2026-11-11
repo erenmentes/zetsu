@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const ASSET_KEY: &str = "zetsu";
+pub const DEFAULT_CLIENT_ID: &str = "1569339926393127034";
 
 trait Pipe: Read + Write + Send {}
 impl<T: Read + Write + Send> Pipe for T {}
@@ -42,6 +43,7 @@ fn connect() -> Option<Box<dyn Pipe>> {
             .iter()
             .filter_map(|k| std::env::var(k).ok())
             .collect();
+        dirs.push(format!("/run/user/{}", unsafe { libc::getuid() }));
         dirs.push("/tmp".into());
         for d in dirs {
             for sub in [

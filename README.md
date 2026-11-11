@@ -14,6 +14,7 @@
 - **Language Server Protocol** — completion (including auto-imports and snippet expansion), diagnostics, hover, go to definition, references, code actions with resolve support, signature help, rename and document formatting. Servers are discovered on `PATH` and started on demand.
 - **Mouse** — click to place the cursor, drag to select, double/triple click for word/line selection, scroll, tab switching, context menu, Ctrl+click to jump to a definition, resizable file tree.
 - **Debugger (DAP)** — breakpoints, stepping, variables tree, call stack, watches and a debug console. Works with CodeLLDB, lldb-dap and gdb for Rust/C/C++, debugpy for Python and Delve for Go. Missing adapters are downloaded on first use, Rust projects are built automatically and `.vscode/launch.json` is supported.
+- **Git** — change markers in the gutter, inline blame, diff views, staging and reverting individual changes, a Source Control tab with commit, AI commit messages, branches, push/pull/fetch and history, and merge conflict resolution.
 - **Live flowchart** — control-flow diagram of the function under the cursor, generated with tree-sitter. Follows the debugger as you step, marks breakpoints, and zooms semantically from a single function out to the whole file and project, with a braille minimap at low zoom levels. Optional AI summaries explain what each function does.
 - **Find and replace** — inline find bar with live highlighting, match counter, case/whole-word/regex options, capture-group replacement and single-step undo for replace-all.
 - **Navigation** — document symbols, workspace symbol search, references, jump list.
@@ -121,6 +122,16 @@ Press `:help` inside the editor for the full keymap.
 | `F6` | pause |
 | `K` | evaluate the expression under the cursor while paused |
 
+### Git
+
+| Key | Action |
+|---|---|
+| `Alt+G` | open the Git tab in the sidebar |
+| `]c` / `[c` | next / previous change or conflict |
+| click a gutter marker | stage, revert or diff that change |
+| `:git blame`, `:git diff` | toggle inline blame, diff of the current file |
+| `:branch <name>` | switch to or create a branch |
+
 ### Flowchart
 
 | Key | Action |
@@ -172,6 +183,18 @@ For Rust, zetsu runs `cargo build` and debugs the produced binary. For C/C++, pa
 If the workspace contains `.vscode/launch.json`, the first `launch` configuration with a supported type (`lldb`, `lldb-dap`, `cppdbg`, `gdb`, `debugpy`, `python`, `go`) is used. Comments, trailing commas and the common `${workspaceFolder}`/`${file}` variables are supported, as is CodeLLDB's `cargo` field.
 
 CodeLLDB gives the best Rust experience: it pretty-prints `Vec`, `String`, `HashMap` and other standard types. In the debug console expressions are evaluated directly; prefix a line with `` ` `` to run a raw LLDB command (`` `frame info ``).
+
+## Git
+
+zetsu drives the `git` executable on your `PATH`, so your configuration, credentials, SSH keys and hooks apply unchanged. All git commands run in the background; the editor never waits on them.
+
+**In the editor.** The gutter marks lines that differ from the index: green for added, blue for modified, red for deleted. `]c` / `[c` jump between changes. Clicking a marker (or right-clicking the line) offers *Stage change*, *Revert change* and *Show file diff*: staging applies only that hunk to the index, reverting restores the indexed text in the buffer and can be undone. The cursor line shows its author, age and commit subject as dim inline text (`:git blame off` to hide it). Diffs open as separate buffers with `+`/`-` coloring; `Enter` on a diff line jumps to that line in the file.
+
+**Git tab.** `Alt+G` switches the sidebar to the Git tab: current branch with ahead/behind counts, a commit message box, and buttons for commit, AI message, push, pull and fetch. Below are conflicted, staged and changed files and the recent history. `s` stages or unstages the selected file, `Enter` opens its diff (or the selected commit), `d` twice discards changes. Committing with nothing staged stages all changes first. Push sets the upstream automatically the first time. `b` opens the branch picker, which can also create a branch.
+
+**AI commit messages.** `a` (or the *AI* button) sends the staged diff, or the working diff if nothing is staged, together with recent commit subjects to the model selected in the AI panel, and fills the message box with a suggested message in the style of the existing history.
+
+**Merge conflicts.** Conflict blocks are tinted (ours green, theirs blue) and the `<<<<<<<` line carries *Accept ours*, *Accept theirs* and *Accept both* buttons; `:conflict ours|theirs|both` does the same from the keyboard and `]c` moves between conflicts. After resolving, save and stage the file; the Git tab shows `MERGE` until the merge commit is made. Files in the tree are colored by status.
 
 ## Flowchart
 
@@ -243,7 +266,7 @@ Settings are persisted by the editor itself:
 | `lang` | `:lang en\|tr` | interface language |
 | `recent` | — | recent workspaces |
 | `discord` | `:discord on\|off` | Rich Presence toggle |
-| `discord_client_id` | `:discord id <id>` | Discord application ID |
+| `discord_client_id` | `:discord id <id>` | custom Discord application ID (optional) |
 | `ai_provider` | `:ai provider` | active AI provider |
 | `ai_key_<provider>` | `:ai key` | API key per provider |
 | `ai_model_<provider>` | `:ai model` | model per provider |
@@ -251,19 +274,24 @@ Settings are persisted by the editor itself:
 
 ## Discord Rich Presence
 
-1. Create an application at the [Discord Developer Portal](https://discord.com/developers/applications) named `Zetsu IDE`.
-2. Under **Rich Presence → Art Assets**, upload `assets/zetsu-1024.png` with the key `zetsu`.
-3. Run `:discord id <APPLICATION_ID>` in zetsu.
+Rich Presence works out of the box: while the Discord desktop app is running, your profile shows **Zetsu IDE** with the active file, the workspace name and the session duration. Nothing needs to be installed or configured; zetsu talks to Discord over its local IPC socket (Windows, macOS and Linux, including Flatpak and Snap builds of Discord).
 
-The presence shows the active file, the workspace name and the session duration.
+If it does not appear, make sure *Settings → Activity Privacy → Share your detected activities with others* is enabled in Discord.
+
+| Command | |
+|---|---|
+| `:discord` | show the connection status |
+| `:discord off` / `:discord on` | disable / enable Rich Presence |
+| `:discord id <ID>` | use your own Discord application instead (its art asset must be named `zetsu`) |
+| `:discord id default` | return to the built-in application |
 
 ## Building a release
 
 Releases are produced by GitHub Actions (`.github/workflows/build.yml`). Every push to `main` builds and tests all targets; pushing a version tag also publishes a GitHub Release with the binaries attached:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 ## Project layout
@@ -284,6 +312,8 @@ src/
   find.rs        find and replace bar, search matcher
   flow.rs        tree-sitter control-flow extraction, flowchart layout and rasterizer
   flow_ui.rs     flowchart panel: semantic zoom, braille rendering, debugger sync
+  git.rs         git CLI runner, status parsing, line diffs, hunk patches, blame, conflicts
+  git_ui.rs      Git sidebar tab, gutter markers, inline blame, diff buffers, conflict actions
   dap.rs         Debug Adapter Protocol client, adapter discovery, launch configuration
   debug_ui.rs    debugger session, breakpoints and the debug panel
   tools.rs       debug adapter download and installation

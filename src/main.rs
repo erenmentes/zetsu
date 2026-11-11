@@ -7,6 +7,7 @@ mod dap;
 mod discord;
 mod editor;
 mod flow;
+mod git;
 mod highlight;
 mod lsp;
 mod render;
@@ -82,6 +83,9 @@ fn run(ed: &mut Editor) -> io::Result<()> {
             redraw = true;
         }
         if ed.flow_tick() {
+            redraw = true;
+        }
+        if ed.git_tick() {
             redraw = true;
         }
         ed.presence_tick();

@@ -1,5 +1,5 @@
 use crate::buffer::{char_width, disp_col};
-use crate::editor::{Editor, Focus, Layout, Mode, MENU_ROWS, POPUP_ROWS};
+use crate::editor::{git_ui, Editor, Focus, Layout, Mode, MENU_ROWS, POPUP_ROWS};
 use crate::highlight::{self, Tok};
 use crate::lsp::from_lsp_col;
 use crate::screen::{Screen, Style};
@@ -165,7 +165,13 @@ impl Editor {
             _ if self.focus == Focus::Ai => self.ai_cursor.get(),
             _ if self.focus == Focus::Find => self.find_cursor.get(),
             _ if self.focus == Focus::Debug => self.dbg_cursor.get(),
-            _ if self.focus == Focus::Tree => None,
+            _ if self.focus == Focus::Tree => {
+                if self.git.tab {
+                    self.git.cursor.get()
+                } else {
+                    None
+                }
+            }
             _ if self.is_splash() => None,
             _ => {
                 let l = self.layout();
@@ -187,6 +193,7 @@ impl Editor {
     pub fn bar_cursor(&self) -> bool {
         matches!(self.mode, Mode::Insert | Mode::Command | Mode::Search)
             || matches!(self.focus, Focus::Find | Focus::Ai)
+            || (self.focus == Focus::Tree && self.git.tab && self.git.editing)
     }
 
     fn draw_tabs(&mut self, s: &mut Screen) {
@@ -218,8 +225,20 @@ impl Editor {
         let t = &self.tree;
         let focused = self.focus == Focus::Tree;
         let w = l.tree_w;
-        let header = format!(" {}", t.root_name().to_uppercase());
-        s.put(0, l.top, &header, Style::fg(if focused { BRIGHT } else { DIM }).bold());
+        let sep = Style::fg(if focused { FUNC } else { BAR });
+        for r in 0..l.text_h {
+            s.put_char(l.tree_w, l.top + r, '│', sep);
+        }
+        if self.draw_sidebar_tabs(s, l) {
+            if self.git.tab {
+                self.draw_git_panel(s, l);
+                return;
+            }
+        } else {
+            let header = format!(" {}", t.root_name().to_uppercase());
+            s.put(0, l.top, &header, Style::fg(if focused { BRIGHT } else { DIM }).bold());
+        }
+        let colors = self.git_tree_colors();
         let open_path = self.buf().path.as_deref();
         let rows = l.text_h.saturating_sub(1) as usize;
         for r in 0..rows {
@@ -227,10 +246,15 @@ impl Editor {
             let y = l.top + 1 + r as u16;
             let Some(n) = t.nodes.get(i) else { break };
             let selected = i == t.sel;
-            let mut st = if n.is_dir {
-                Style::fg(BRIGHT)
-            } else if Some(n.path.as_path()) == open_path {
+            let gc = colors
+                .as_ref()
+                .and_then(|m| m.get(&crate::lsp::path_key(&n.path)).copied());
+            let mut st = if Some(n.path.as_path()) == open_path {
                 Style::fg(FUNC)
+            } else if let Some(c) = gc {
+                Style::fg(c)
+            } else if n.is_dir {
+                Style::fg(BRIGHT)
             } else {
                 Style::new()
             };
@@ -256,10 +280,6 @@ impl Editor {
                 }
                 x += s.put_char(x, y, c, st);
             }
-        }
-        let sep = Style::fg(if focused { FUNC } else { BAR });
-        for r in 0..l.text_h {
-            s.put_char(l.tree_w, l.top + r, '│', sep);
         }
     }
 
@@ -387,6 +407,11 @@ impl Editor {
         let right = b.scroll_x + l.text_w as usize;
         let diags = self.buf_diags(self.cur);
         let cur_path = b.path.as_deref();
+        self.git.conf_hits.borrow_mut().clear();
+        let diff_buf = b.lang.name == "Diff";
+        let signs = self.git_signs(b.scroll_y, l.text_h as usize);
+        let conflicts = self.git_conflicts();
+        let blame = self.git_blame_text();
         let exec_line = match (&self.dbg.at, cur_path) {
             (Some((p, line)), Some(cp)) if crate::lsp::path_key(p) == crate::lsp::path_key(cp) => Some(*line),
             _ => None,
@@ -449,6 +474,21 @@ impl Editor {
                 let st = if ly == b.cy { Style::fg(BRIGHT) } else { Style::fg(DIM) };
                 s.put(l.ed_x + 1, sy, &txt, st);
             }
+            if let Some(&sg) = signs.get(row as usize).filter(|v| **v != 0) {
+                let (ch, st) = git_ui::sign_style(sg);
+                s.put_char(l.text_x.saturating_sub(1), sy, ch, st);
+            }
+            let cbg = if conflicts.is_empty() {
+                None
+            } else {
+                self.git_line_bg(&conflicts, ly)
+            };
+            if let Some(bg) = cbg {
+                if !exec {
+                    s.fill(l.text_x, sy, l.text_w, Style::new().on(bg));
+                }
+            }
+            let dstyle = if diff_buf { git_ui::diff_line_style(line) } else { None };
             let toks = highlight::highlight_line(b.lang, line, &mut in_block);
             let mut mask = vec![0u8; line.len()];
             if let Some(p) = pat {
@@ -470,7 +510,7 @@ impl Editor {
                 if start >= right {
                     break;
                 }
-                let mut st = tok_style(toks[i]);
+                let mut st = dstyle.unwrap_or_else(|| tok_style(toks[i]));
                 if in_sel(i, ly) {
                     st = st.on(SEL);
                 } else if mask[i] == 2 {
@@ -479,6 +519,8 @@ impl Editor {
                     st = st.on(FIND);
                 } else if exec {
                     st = st.on(EXEC);
+                } else if let Some(bg) = cbg {
+                    st = st.on(bg);
                 }
                 if ulm[i] != 0 {
                     st = st.underline(sev_color(ulm[i]));
@@ -493,6 +535,17 @@ impl Editor {
                 }
             }
             let nl_selected = visual && (line_mode || (ly >= sa.1 && ly < se.1) || (ly == se.1 && se.0 >= line.len()));
+            let tail_x = l.text_x + col.saturating_sub(b.scroll_x).min(l.text_w as usize) as u16 + 1;
+            if let Some(ci) = conflicts.iter().position(|c| c.start == ly) {
+                self.git_draw_conflict_buttons(s, tail_x, sy, l.text_x + l.text_w, ci);
+            } else if ly == b.cy && !visual {
+                if let Some(bt) = &blame {
+                    let room = (l.text_x + l.text_w).saturating_sub(tail_x + 2) as usize;
+                    if room > 8 {
+                        put_clip(s, tail_x + 2, sy, bt, Style::fg(DIM).italic(), room);
+                    }
+                }
+            }
             if col >= b.scroll_x && col < right {
                 let ex = l.text_x + (col - b.scroll_x) as u16;
                 if nl_selected {
@@ -542,8 +595,9 @@ impl Editor {
         };
         let col = disp_col(&b.lines[b.cy], b.cx) + 1;
         let right = format!(
-            "{}  {}{}  {}  {}:{}  {:>3}% ",
+            "{}  {}{}{}  {}  {}:{}  {:>3}% ",
             self.pending_str(),
+            self.git_status_label().map(|s| s + "  ").unwrap_or_default(),
             self.lsp_status().map(|s| s + "  ").unwrap_or_default(),
             if b.lang.name == "Metin" {
                 t!("Metin", "Text")

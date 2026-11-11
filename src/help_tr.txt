@@ -90,6 +90,20 @@ DEBUG (DAP)
   :uninstall <ad> indirilen bir aracı kaldır
   .vscode/launch.json varsa oradaki ilk uygun yapılandırma kullanılır
 
+GIT
+  Alt+G           kenar çubuğunun Git sekmesi (tekrar: dosyalara dön)
+  gutter          ▎ yeşil eklenen, ▎ mavi değişen, ▁ kırmızı silinen satırlar
+  ]c / [c         sonraki / önceki değişiklik (ya da çakışma)
+  işarete tıkla   değişikliği stage'le / geri al ya da farkı göster
+  :hunk stage|revert|diff      :conflict ours|theirs|both
+  :git blame [on|off]  imleçteki satırın yazarı ve tarihi
+  :git diff | stage | unstage | commit <mesaj> | push | pull | fetch | log
+  :branch <ad>    branch'e geç, yoksa oluştur
+  Git sekmesi:  j/k gez   Enter fark   o aç   s stage/unstage   S hepsini stage'le
+                U hepsini unstage   d değişikliği sil (iki kez)   c mesaj
+                a AI mesajı   C commit   P push   p pull   f fetch   b branch'ler
+  Fark görünümünde Enter dosyadaki satıra gider
+
 AKIŞ ŞEMASI
   Ctrl+G          akış şeması panelini aç / kapat (imleci ve debugger'ı takip eder)
   + / -           yakınlaş / uzaklaş; uzaklaştıkça fonksiyon → dosya → proje
@@ -127,7 +141,8 @@ SİSTEM PANOSU
 
 DISCORD
   :discord              durum
-  :discord id <ID>      Discord uygulama kimliğini kaydet (bir kez)
+  :discord id <ID>      kendi Discord uygulamanı kullan (isteğe bağlı)
+  :discord id default   yerleşik Zetsu IDE uygulamasına dön
   :discord on | off     Rich Presence'ı aç / kapat
 
 FARE

@@ -316,10 +316,27 @@ static LUA: LangDef = LangDef {
     plain: false,
 };
 
-static LANGS: &[&LangDef] = &[&RUST, &C, &PYTHON, &JS, &GO, &SHELL, &TOML, &JSON, &LUA];
+static DIFF: LangDef = LangDef {
+    name: "Diff",
+    exts: &["diff", "patch"],
+    keywords: &[],
+    types: &[],
+    line_comment: &[],
+    block: None,
+    quotes: &[],
+    macros: false,
+    caps_types: false,
+    plain: true,
+};
+
+static LANGS: &[&LangDef] = &[&RUST, &C, &PYTHON, &JS, &GO, &SHELL, &TOML, &JSON, &LUA, &DIFF];
 
 pub fn plain() -> &'static LangDef {
     &PLAIN
+}
+
+pub fn diff() -> &'static LangDef {
+    &DIFF
 }
 
 pub fn detect(path: &Path) -> &'static LangDef {

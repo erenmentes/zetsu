@@ -90,6 +90,20 @@ DEBUGGING (DAP)
   :uninstall <name>  remove a downloaded tool
   If .vscode/launch.json exists, its first supported configuration is used
 
+GIT
+  Alt+G           open the Git tab of the sidebar (again: back to files)
+  gutter          ▎ green added, ▎ blue modified, ▁ red deleted lines
+  ]c / [c         next / previous change (or merge conflict)
+  click a marker  stage / revert the change or show the diff
+  :hunk stage|revert|diff      :conflict ours|theirs|both
+  :git blame [on|off]  author and date of the cursor line
+  :git diff | stage | unstage | commit <msg> | push | pull | fetch | log
+  :branch <name>  switch to a branch, or create it
+  Git tab:  j/k move   Enter diff   o open   s stage/unstage   S stage all
+            U unstage all   d discard (twice)   c message   a AI message
+            C commit   P push   p pull   f fetch   b branches   r refresh
+  Diff views: Enter jumps to the line in the file
+
 FLOWCHART
   Ctrl+G          toggle the flowchart panel (follows the cursor and the debugger)
   + / -           zoom in / out; zooming out goes function → file → project
@@ -127,7 +141,8 @@ CLIPBOARD
 
 DISCORD
   :discord              status
-  :discord id <ID>      save your Discord application ID (once)
+  :discord id <ID>      use your own Discord application (optional)
+  :discord id default   back to the built-in Zetsu IDE application
   :discord on | off     enable / disable Rich Presence
 
 MOUSE
